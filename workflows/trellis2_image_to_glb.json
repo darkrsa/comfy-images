@@ -375,7 +375,7 @@
     "26",
     0
    ],
-   "target_face_count": 150000,
+   "target_face_count": 80000,
    "placement_mode": "midpoint"
   }
  },
@@ -397,7 +397,7 @@
     0
    ],
    "segmenter": "pec",
-   "resolution": 2048,
+   "resolution": 1024,
    "padding": 1,
    "weld_distance": 0.0002
   }
@@ -413,7 +413,7 @@
     "25",
     0
    ],
-   "texture_size": 2048,
+   "texture_size": 1024,
    "reference_mesh": [
     "24",
     0

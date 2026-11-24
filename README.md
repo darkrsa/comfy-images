@@ -68,7 +68,7 @@ needs the web UI's viewport state. Other settings: `COMFY_STARTUP_TIMEOUT_S` (60
 | `docker/fetch/fetch.py` | Build-time downloader (stdlib only), bind-mounted into each `RUN`, never copied into a layer. Refuses a file whose upstream card does not report its declared licence; verifies size + sha256 |
 | `docker/extras/` | Copied into images that need it: `licenses/` (texts a weight licence requires) and `handler.py` (all-outputs handler) |
 | `ci/` | Runner disk setup, which families a push rebuilds (`plan_families.sh`), and the per-image review manifest (files added vs the base, for the secret scan) |
-| `workflows/` | API-format ComfyUI workflows for the images (`trellis2_image_to_glb.json`: photo → background removal → TRELLIS.2 1024 → remesh/decimate 150k → baked PBR textures → `SaveGLB`) |
+| `workflows/` | API-format ComfyUI workflows for the images (`trellis2_image_to_glb.json`: photo → background removal → TRELLIS.2 1024 → remesh/decimate 80k → baked 1024 PBR textures → `SaveGLB`) |
 | `runpod_smoke.py` | One test run on RunPod: template + endpoint (min 0, max 1 worker), one job under a dollar cap, outputs saved, both deleted by ID, estimate printed |
 | `.github/workflows/build.yml` | Builds, secret-scans (gitleaks, fails on any finding) and pushes one image per family |
 | `.github/workflows/test.yml` | Offline tests + "Dockerfiles match models.yaml" on every push and PR |
