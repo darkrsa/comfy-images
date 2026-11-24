@@ -98,42 +98,45 @@ files:
     licence_repo: black-forest-labs/FLUX.2-klein-4B
     licence_url: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
 
-  # TRELLIS.2 image-to-3D (ComfyUI 0.34 native nodes), files as linked by Comfy-Org/workflow_templates
-  # 3d_pixal3d_trellis2_image_to_model.json. sha256 null: CI pins it from HF's LFS headers on the
-  # first build. size_gb from HF's file listing (2026-11-24).
+  # TRELLIS.2 image-to-3D (ComfyUI 0.34 native nodes), from the Comfy-Org/TRELLIS.2 repack of
+  # microsoft/TRELLIS.2-4B. sha256 and size from HF's LFS listing, 2026-11-24. The template
+  # 3d_pixal3d_trellis2_image_to_model.json links the VAEs from Comfy-Org/Pixal3D: byte-identical
+  # (same sha256). It also links dino_v3_L_naf_fp32 from there, a DINOv3 variant ~2.6 MB larger
+  # (Pixal3D's NAF upsampler, licence unchecked), so the plain DINOv3 file below is used instead.
   - name: trellis_2_int8_convrot
     url: https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/diffusion_models/trellis_2_int8_convrot.safetensors
     path: models/diffusion_models/trellis_2_int8_convrot.safetensors
     size_gb: 5.25
-    sha256: null
+    sha256: d01952ad137213f6a868f86b6b877026276f84af5eec23069217475a0bad3a31  # HF LFS, 5253048192 bytes
     licence: mit
     licence_repo: microsoft/TRELLIS.2-4B
     licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
 
   - name: trellis_2_shape_vae_bf16
-    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors
+    url: https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors
     path: models/vae/trellis_2_shape_vae_bf16.safetensors
     size_gb: 1.10
-    sha256: null
+    sha256: de0cb4949a76c59ee5c091a995a69bcc8c51d5aeda939f0c641a50d2a72341f4  # HF LFS, 1095844024 bytes
     licence: mit
     licence_repo: microsoft/TRELLIS.2-4B
     licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
 
   - name: trellis_2_texture_vae_bf16
-    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors
+    url: https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors
     path: models/vae/trellis_2_texture_vae_bf16.safetensors
     size_gb: 0.95
-    sha256: null
+    sha256: 714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e  # HF LFS, 948461364 bytes
     licence: mit
     licence_repo: microsoft/TRELLIS.2-4B
     licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
 
   # DINOv3 ViT-L image encoder (CLIPVisionLoader) used to condition TRELLIS.2.
-  - name: dino_v3_L_naf_fp32
-    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/clip_vision/dino_v3_L_naf_fp32.safetensors
-    path: models/clip_vision/dino_v3_L_naf_fp32.safetensors
-    size_gb: 1.22
-    sha256: null
+  # 1212559776 bytes vs facebook's model.safetensors 1212559808: same tensors, header repacked.
+  - name: dino_v3_vit_l
+    url: https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/clip_vision/dino_v3_vit_l.safetensors
+    path: models/clip_vision/dino_v3_vit_l.safetensors
+    size_gb: 1.21
+    sha256: 5cb785e458de7c460579082418af81f5c62380c181599344bdc60898c63468ee  # HF LFS, 1212559776 bytes
     licence: dinov3-license
     licence_repo: facebook/dinov3-vitl16-pretrain-lvd1689m
     licence_url: https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md
@@ -144,10 +147,52 @@ files:
     url: https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors
     path: models/background_removal/birefnet.safetensors
     size_gb: 0.44
-    sha256: null
+    sha256: 9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154  # = ZhengPeng7/BiRefNet model.safetensors, 444473596 bytes
     licence: mit
     licence_repo: ZhengPeng7/BiRefNet
     licence_url: https://huggingface.co/ZhengPeng7/BiRefNet
+
+  # Z-Image Turbo Fun ControlNet Union (canny/depth/pose...), loaded by ModelPatchLoader, as in
+  # Comfy-Org/workflow_templates image_z_image_turbo_fun_union_controlnet.json (v1 file; the 2.x
+  # files in alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union-2.1 are not in a ComfyUI template).
+  - name: z_image_turbo_fun_controlnet_union
+    url: https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union/resolve/main/Z-Image-Turbo-Fun-Controlnet-Union.safetensors
+    path: models/model_patches/Z-Image-Turbo-Fun-Controlnet-Union.safetensors
+    size_gb: 3.10
+    sha256: 86c085c0d7853f12ce5183499934b54d08371c60f549c5a6b20615cd23989388  # HF LFS, 3101572408 bytes
+    licence: apache-2.0
+    licence_repo: alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union
+    licence_url: https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union
+
+  # Wan2.2 TI2V-5B image/text-to-video, files as in workflow_templates video_wan2_2_5B_ti2v.json
+  # (its Comfy-Org/Wan_2.2_ComfyUI_Repackaged links redirect to Comfy-Org/Wan-2.2).
+  - name: wan2_2_ti2v_5b_fp16
+    url: https://huggingface.co/Comfy-Org/Wan-2.2/resolve/main/split_files/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors
+    path: models/diffusion_models/wan2.2_ti2v_5B_fp16.safetensors
+    size_gb: 10.00
+    sha256: 456f901338bd9eadbded3828b819109a9b68e8a525ca5cf8d0049a69fcfeca1e  # HF LFS, 9999658848 bytes
+    licence: apache-2.0
+    licence_repo: Wan-AI/Wan2.2-TI2V-5B
+    licence_url: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B
+
+  # umT5-XXL text encoder (CLIPLoader type `wan`), fp8: the fp16 file (11.4 GB) exceeds GHCR's layer cap.
+  - name: umt5_xxl_fp8
+    url: https://huggingface.co/Comfy-Org/Wan-2.2/resolve/main/split_files/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+    path: models/text_encoders/umt5_xxl_fp8_e4m3fn_scaled.safetensors
+    size_gb: 6.74
+    sha256: c3355d30191f1f066b26d93fba017ae9809dce6c627dda5f6a66eaa651204f68  # HF LFS, 6735906897 bytes
+    licence: apache-2.0
+    licence_repo: google/umt5-xxl
+    licence_url: https://huggingface.co/google/umt5-xxl
+
+  - name: wan2_2_vae
+    url: https://huggingface.co/Comfy-Org/Wan-2.2/resolve/main/split_files/vae/wan2.2_vae.safetensors
+    path: models/vae/wan2.2_vae.safetensors
+    size_gb: 1.41
+    sha256: e40321bd36b9709991dae2530eb4ac303dd168276980d3e9bc4b6e2b75fed156  # HF LFS, 1409400960 bytes
+    licence: apache-2.0
+    licence_repo: Wan-AI/Wan2.2-TI2V-5B
+    licence_url: https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B
 
 # Amendment 1: one Docker image + one serverless endpoint per family, weights baked in at
 # build time (images.py renders docker/<family>/Dockerfile from this; CI builds and pushes
@@ -161,10 +206,18 @@ families:
     files: [flux2_klein_4b, qwen_3_4b_klein, flux2_vae]
   # Image -> textured GLB. `handler: outputs` swaps in docker/extras/handler.py, which returns
   # files of every output kind (the stock handler drops SaveGLB's `3d` output).
+  # Z-Image Turbo + its Fun ControlNet Union: pose/depth/canny from 3D renders. A family of its own
+  # so the bake-off's zimage-turbo image stays unchanged.
+  zimage-turbo-cn:
+    files: [z_image_turbo_bf16, qwen_3_4b, z_image_vae, z_image_turbo_fun_controlnet_union]
+  # Image + prompt -> video (SaveVideo mp4), returned by the all-outputs handler.
+  wan22-5b:
+    handler: outputs
+    files: [wan2_2_ti2v_5b_fp16, umt5_xxl_fp8, wan2_2_vae]
   trellis2:
     handler: outputs
     files: [trellis_2_int8_convrot, trellis_2_shape_vae_bf16, trellis_2_texture_vae_bf16,
-            dino_v3_L_naf_fp32, birefnet]
+            dino_v3_vit_l, birefnet]
 
 # Bake-off profiles → files they need (by name) and sampler settings. workflows.py builds them.
 profiles:

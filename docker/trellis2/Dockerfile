@@ -14,35 +14,35 @@ RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/diffusion_models/trellis_2_int8_convrot.safetensors \
       https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/diffusion_models/trellis_2_int8_convrot.safetensors \
-      - microsoft/TRELLIS.2-4B mit
+      d01952ad137213f6a868f86b6b877026276f84af5eec23069217475a0bad3a31 microsoft/TRELLIS.2-4B mit
 
 # trellis_2_shape_vae_bf16: mit (https://huggingface.co/microsoft/TRELLIS.2-4B)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/vae/trellis_2_shape_vae_bf16.safetensors \
-      https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors \
-      - microsoft/TRELLIS.2-4B mit
+      https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors \
+      de0cb4949a76c59ee5c091a995a69bcc8c51d5aeda939f0c641a50d2a72341f4 microsoft/TRELLIS.2-4B mit
 
 # trellis_2_texture_vae_bf16: mit (https://huggingface.co/microsoft/TRELLIS.2-4B)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/vae/trellis_2_texture_vae_bf16.safetensors \
-      https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors \
-      - microsoft/TRELLIS.2-4B mit
+      https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors \
+      714e5ebf094a610e12a8e3b5175c18a62f37f6ea4218acb6073644456b73ab0e microsoft/TRELLIS.2-4B mit
 
-# dino_v3_L_naf_fp32: dinov3-license (https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)
+# dino_v3_vit_l: dinov3-license (https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
-      models/clip_vision/dino_v3_L_naf_fp32.safetensors \
-      https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/clip_vision/dino_v3_L_naf_fp32.safetensors \
-      - facebook/dinov3-vitl16-pretrain-lvd1689m dinov3-license
+      models/clip_vision/dino_v3_vit_l.safetensors \
+      https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/clip_vision/dino_v3_vit_l.safetensors \
+      5cb785e458de7c460579082418af81f5c62380c181599344bdc60898c63468ee facebook/dinov3-vitl16-pretrain-lvd1689m dinov3-license
 
 # birefnet: mit (https://huggingface.co/ZhengPeng7/BiRefNet)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/background_removal/birefnet.safetensors \
       https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors \
-      - ZhengPeng7/BiRefNet mit
+      9ab37426bf4de0567af6b5d21b16151357149139362e6e8992021b8ce356a154 ZhengPeng7/BiRefNet mit
 
 COPY --from=extras licenses/DINOv3-LICENSE.md /licenses/DINOv3-LICENSE.md
 COPY --from=extras licenses/DINOv3-NOTICE.txt /licenses/DINOv3-NOTICE.txt

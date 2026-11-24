@@ -19,7 +19,7 @@ DIFFUSION_DIRS = ("models/unet/", "models/diffusion_models/")
 
 
 def test_families_have_one_diffusion_model_each():
-    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "trellis2"]
+    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2"]
     by_name = {f["name"]: f for f in MODELS["files"]}
     for fam, spec in MODELS["families"].items():
         models = [n for n in spec["files"] if by_name[n]["path"].startswith(DIFFUSION_DIRS)]
@@ -38,7 +38,7 @@ def test_every_licence_in_use_is_approved_with_a_source():
 
 
 def test_dinov3_ships_its_licence_text():
-    dino = next(f for f in MODELS["files"] if f["name"] == "dino_v3_L_naf_fp32")
+    dino = next(f for f in MODELS["files"] if f["name"] == "dino_v3_vit_l")
     assert dino["licence"] == "dinov3-license"
     assert "DINOv3-LICENSE.md" in dino["licence_files"]
     text = (I.EXTRAS / "licenses" / "DINOv3-LICENSE.md").read_text(encoding="utf-8")
@@ -64,12 +64,12 @@ def test_unapproved_licence_is_refused():
 def test_removing_an_approval_refuses_the_family():
     models = copy.deepcopy(MODELS)
     del models["approved_licences"]["dinov3-license"]
-    with pytest.raises(I.ModelsError, match="dino_v3_L_naf_fp32"):
+    with pytest.raises(I.ModelsError, match="dino_v3_vit_l"):
         I.dockerfile("trellis2", models)
 
 
 def test_missing_licence_text_is_refused():
-    models = _models_with(dino_v3_L_naf_fp32={"licence_files": ["NOPE.md"]})
+    models = _models_with(dino_v3_vit_l={"licence_files": ["NOPE.md"]})
     with pytest.raises(I.ModelsError, match="NOPE.md is missing"):
         I.dockerfile("trellis2", models)
 
@@ -205,7 +205,7 @@ def _plan_after(repo, path):
 @pytest.mark.parametrize(("path", "families"), [
     ("docker/zimage-full/Dockerfile", ["zimage-full"]),          # not the last family: used to exit 1
     ("docker/trellis2/Dockerfile", ["trellis2"]),
-    ("docker/extras/handler.py", ["trellis2"]),                  # only families that copy extras
+    ("docker/extras/handler.py", ["wan22-5b", "trellis2"]),      # only families that copy extras
     ("docker/fetch/fetch.py", FAMILIES),
     ("README.md", []),
 ])

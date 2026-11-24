@@ -1,7 +1,7 @@
 # comfy-images
 
 Ready-to-run [RunPod serverless](https://docs.runpod.io/serverless/overview) images for ComfyUI
-text-to-image and image-to-3D: the stock [`runpod/worker-comfyui`](https://github.com/runpod-workers/worker-comfyui)
+text-to-image, ControlNet, image-to-video and image-to-3D: the stock [`runpod/worker-comfyui`](https://github.com/runpod-workers/worker-comfyui)
 `5.10.0-base` image with one model family's weights baked in, so an endpoint needs no network volume.
 
 | Image | Weights |
@@ -9,6 +9,8 @@ text-to-image and image-to-3D: the stock [`runpod/worker-comfyui`](https://githu
 | `ghcr.io/darkrsa/kdp-comfy-flux2klein` | FLUX.2 klein 4B + its Qwen3-4B text encoder + FLUX.2 VAE |
 | `ghcr.io/darkrsa/kdp-comfy-zimage-turbo` | Z-Image Turbo bf16 + Qwen3-4B text encoder + VAE |
 | `ghcr.io/darkrsa/kdp-comfy-zimage-full` | Z-Image bf16 + Qwen3-4B text encoder + VAE |
+| `ghcr.io/darkrsa/kdp-comfy-zimage-turbo-cn` | Z-Image Turbo + Z-Image-Turbo Fun ControlNet Union (ModelPatchLoader) |
+| `ghcr.io/darkrsa/kdp-comfy-wan22-5b` | Wan2.2 TI2V-5B fp16 + umT5-XXL fp8 + Wan2.2 VAE; returns video files (all-outputs handler) |
 | `ghcr.io/darkrsa/kdp-comfy-trellis2` | TRELLIS.2 (int8) + shape/texture VAEs + DINOv3 ViT-L encoder + BiRefNet; returns GLB (see below) |
 
 Tags: `<yyyymmdd>-<sha>` (immutable) and `latest`. Weight files are placed where ComfyUI expects them:
@@ -18,8 +20,11 @@ Tags: `<yyyymmdd>-<sha>` (immutable) and `latest`. Weight files are placed where
 /comfyui/models/clip/  qwen_3_4b.safetensors
 /comfyui/models/vae/   ae.safetensors | flux2-vae.safetensors
                        trellis_2_shape_vae_bf16 | trellis_2_texture_vae_bf16  .safetensors
-/comfyui/models/diffusion_models/  trellis_2_int8_convrot.safetensors
-/comfyui/models/clip_vision/       dino_v3_L_naf_fp32.safetensors
+/comfyui/models/diffusion_models/  trellis_2_int8_convrot | wan2.2_ti2v_5B_fp16  .safetensors
+/comfyui/models/text_encoders/     umt5_xxl_fp8_e4m3fn_scaled.safetensors
+/comfyui/models/vae/               wan2.2_vae.safetensors
+/comfyui/models/model_patches/     Z-Image-Turbo-Fun-Controlnet-Union.safetensors
+/comfyui/models/clip_vision/       dino_v3_vit_l.safetensors
 /comfyui/models/background_removal/ birefnet.safetensors
 /licenses/             licence texts a bundled weight requires (trellis2: DINOv3)
 ```
@@ -30,11 +35,11 @@ build time, checked against a pinned sha256, and refused unless its model card r
 Apache-2.0 is approved by the owner explicitly). The only code an image adds is the output handler
 of families that set `handler: outputs` (below). Each image was scanned (gitleaks) before publishing.
 
-## trellis2: image to GLB
+## trellis2 and wan22-5b: all outputs (GLB, video)
 
 The stock worker-comfyui 5.10.0 handler returns only the `images` output of each node, so a
-`SaveGLB` node (which reports its file under `3d`) gives an empty result. The `trellis2` image
-replaces `/handler.py` with [`docker/extras/handler.py`](docker/extras/handler.py), which returns
+`SaveGLB` node (which reports its file under `3d`) gives an empty result. The `trellis2` and
+`wan22-5b` images replace `/handler.py` with [`docker/extras/handler.py`](docker/extras/handler.py), which returns
 every file saved to ComfyUI's output folder, whatever its kind:
 
 ```json
@@ -101,6 +106,9 @@ The images bundle third-party software and weights under their own licenses:
 | TRELLIS.2 4B (int8) and its shape/texture VAEs | MIT | https://huggingface.co/microsoft/TRELLIS.2-4B |
 | DINOv3 ViT-L (image encoder for TRELLIS.2) | DINOv3 License (Meta), text in the image at `/licenses/DINOv3-LICENSE.md`; no ITAR/military use | https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md |
 | BiRefNet (background removal) | MIT | https://huggingface.co/ZhengPeng7/BiRefNet |
+| Z-Image-Turbo Fun ControlNet Union | Apache-2.0 | https://huggingface.co/alibaba-pai/Z-Image-Turbo-Fun-Controlnet-Union |
+| Wan2.2 TI2V-5B and the Wan2.2 VAE | Apache-2.0 | https://huggingface.co/Wan-AI/Wan2.2-TI2V-5B |
+| umT5-XXL (text encoder for Wan) | Apache-2.0 | https://huggingface.co/google/umt5-xxl |
 
 Weight files are redistributed unmodified (ComfyUI-packaged single files from
 [Comfy-Org](https://huggingface.co/Comfy-Org)). Corresponding source for the AGPL/GPL components
