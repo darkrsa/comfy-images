@@ -198,3 +198,28 @@ def test_parallel_ranges_reassemble_the_file(hf, tmp_path, monkeypatch):
     assert rc == 0
     assert (tmp_path / "a.safetensors").read_bytes() == BLOB
     assert len(FakeHF.gets) == 1 + 17
+
+
+def test_parts_split_the_verified_file(hf, tmp_path, capsys):
+    root = tmp_path / "comfyui"
+    assert fetch.main(["--root", str(root), "--parts", "3", "models/unet/m.safetensors",
+                       f"{hf}/resolve/m.safetensors", "-", "good/repo", "apache-2.0"]) == 0
+    dest = root / "models/unet/m.safetensors"
+    assert not dest.exists()   # only the parts go into layers
+    entry = json.loads((tmp_path / "kdp-models.json").read_text())["files"][0]
+    assert entry["sha256"] == SHA and entry["size"] == len(BLOB)
+    parts = entry["parts"]
+    assert [p["path"] for p in parts] == [f"{dest}.kdp-part{i}" for i in range(3)]
+    joined = b"".join(open(p["path"], "rb").read() for p in parts)
+    assert joined == BLOB
+    assert max(p["size"] for p in parts) - min(p["size"] for p in parts) <= 1
+    assert all(p["sha256"] == hashlib.sha256(open(p["path"], "rb").read()).hexdigest() for p in parts)
+
+
+def test_split_refuses_nonsense(tmp_path):
+    f = tmp_path / "x"
+    f.write_bytes(b"ab")
+    with pytest.raises(fetch.FetchError):
+        fetch.split(f, 1)
+    with pytest.raises(fetch.FetchError):
+        fetch.split(f, 3)
