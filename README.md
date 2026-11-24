@@ -57,7 +57,7 @@ and drop the rest). On a timeout or failure the prompt is removed from ComfyUI's
 interrupted, so a warm worker's next job does not wait behind it. Settings must be positive
 numbers or the worker refuses to start. Use `SaveGLB` in API workflows; `Save3DAdvanced`
 needs the web UI's viewport state. Other settings: `COMFY_STARTUP_TIMEOUT_S` (600),
-`COMFY_JOB_TIMEOUT_S` (1800). Whether the 1536 upsample stage fits a 24 GB GPU is unmeasured.
+`COMFY_JOB_TIMEOUT_S` (1800). The 1536 upsample stage does not fit 24 GB (OOM in VaeDecodeShapeTrellis, 2026-11-24); the workflow uses 1024.
 
 ## How these are built
 
@@ -68,7 +68,7 @@ needs the web UI's viewport state. Other settings: `COMFY_STARTUP_TIMEOUT_S` (60
 | `docker/fetch/fetch.py` | Build-time downloader (stdlib only), bind-mounted into each `RUN`, never copied into a layer. Refuses a file whose upstream card does not report its declared licence; verifies size + sha256 |
 | `docker/extras/` | Copied into images that need it: `licenses/` (texts a weight licence requires) and `handler.py` (all-outputs handler) |
 | `ci/` | Runner disk setup, which families a push rebuilds (`plan_families.sh`), and the per-image review manifest (files added vs the base, for the secret scan) |
-| `workflows/` | API-format ComfyUI workflows for the images (`trellis2_image_to_glb.json`: photo → background removal → TRELLIS.2 1536 → remesh/decimate 150k → baked PBR textures → `SaveGLB`) |
+| `workflows/` | API-format ComfyUI workflows for the images (`trellis2_image_to_glb.json`: photo → background removal → TRELLIS.2 1024 → remesh/decimate 150k → baked PBR textures → `SaveGLB`) |
 | `runpod_smoke.py` | One test run on RunPod: template + endpoint (min 0, max 1 worker), one job under a dollar cap, outputs saved, both deleted by ID, estimate printed |
 | `.github/workflows/build.yml` | Builds, secret-scans (gitleaks, fails on any finding) and pushes one image per family |
 | `.github/workflows/test.yml` | Offline tests + "Dockerfiles match models.yaml" on every push and PR |
