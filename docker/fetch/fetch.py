@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Download one model file into a kdp-comfy image at build time, verified.
 
-    python3 fetch.py --root /comfyui <path> <url> <sha256|-> <licence_repo>
+    python3 fetch.py --root /comfyui <path> <url> <sha256|-> <licence_repo> <licence>
 
 The same checks as kdp-studio infra/runpod-serverless/provision.sh (which fills the optional network volume), ported to the
 standard library because runpod/worker-comfyui has python3 but no curl:
-  1. refuse unless the upstream Hugging Face card (`licence_repo`) reports apache-2.0;
+  1. refuse unless the upstream Hugging Face card (`licence_repo`) reports `licence`, the licence
+     models.yaml declares for the file (images.py only renders licences the owner approved there);
   2. read the exact size + sha256 from HF's LFS headers (x-linked-size / x-linked-etag) on the
      un-followed resolve redirect; a pinned sha256 (from models.yaml) must match them;
   3. download in parallel 64 MB ranges (each resumed + retried) to <root>/<path>.part, check
@@ -47,10 +48,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 def licence_of(repo: str) -> str:
+    """The card's `license`; for `license: other`, its `license_name` (e.g. dinov3-license),
+    so a custom licence is matched by name, not accepted as "other"."""
     with urllib.request.urlopen(urllib.request.Request(f"{HF}/api/models/{repo}", headers=UA),
                                 timeout=60) as r:
         info = json.load(r)
-    lic = (info.get("cardData") or {}).get("license")
+    card = info.get("cardData") or {}
+    lic = card.get("license")
+    if lic == "other" and card.get("license_name"):
+        lic = card["license_name"]
     if not lic:
         lic = next((t.split(":", 1)[1] for t in info.get("tags", []) if t.startswith("license:")),
                    "unknown")
@@ -150,11 +156,11 @@ def record(entry: dict) -> None:
     os.replace(tmp, MANIFEST)
 
 
-def fetch(root: Path, path: str, url: str, want_sha: str, repo: str) -> dict:
+def fetch(root: Path, path: str, url: str, want_sha: str, repo: str, want_licence: str) -> dict:
     want_sha = "" if want_sha == "-" else want_sha.lower()
     lic = licence_of(repo)
-    if lic != "apache-2.0":
-        raise FetchError(f"upstream {repo} licence is {lic!r}, expected apache-2.0")
+    if lic != want_licence:
+        raise FetchError(f"upstream {repo} licence is {lic!r}, expected {want_licence!r}")
     size, lfs_sha = remote_meta(url)
     if want_sha and want_sha != lfs_sha:
         raise FetchError(f"remote sha256 {lfs_sha} != pinned {want_sha}")
@@ -183,9 +189,10 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("url")
     ap.add_argument("sha256", help="pinned sha256, or - to take HF's LFS sha256")
     ap.add_argument("licence_repo")
+    ap.add_argument("licence", help="licence the upstream card must report (from models.yaml)")
     a = ap.parse_args(argv)
     try:
-        fetch(a.root, a.path, a.url, a.sha256, a.licence_repo)
+        fetch(a.root, a.path, a.url, a.sha256, a.licence_repo, a.licence)
     except (FetchError, urllib.error.URLError, http.client.HTTPException, OSError) as e:
         print(f"fetch FAILED {a.path}: {e}", file=sys.stderr)
         return 1

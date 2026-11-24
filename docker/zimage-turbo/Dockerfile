@@ -14,18 +14,18 @@ RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/unet/z_image_turbo_bf16.safetensors \
       https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/diffusion_models/z_image_turbo_bf16.safetensors \
-      2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6 Tongyi-MAI/Z-Image-Turbo
+      2407613050b809ffdff18a4ac99af83ea6b95443ecebdf80e064a79c825574a6 Tongyi-MAI/Z-Image-Turbo apache-2.0
 
 # qwen_3_4b: apache-2.0 (https://huggingface.co/Qwen/Qwen3-4B)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/clip/qwen_3_4b.safetensors \
       https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/text_encoders/qwen_3_4b.safetensors \
-      6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a Tongyi-MAI/Z-Image-Turbo
+      6c671498573ac2f7a5501502ccce8d2b08ea6ca2f661c458e708f36b36edfc5a Tongyi-MAI/Z-Image-Turbo apache-2.0
 
 # z_image_vae: apache-2.0 (https://huggingface.co/Tongyi-MAI/Z-Image-Turbo)
 RUN --mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py \
     python3 /tmp/kdp-fetch.py --root /comfyui \
       models/vae/ae.safetensors \
       https://huggingface.co/Comfy-Org/z_image_turbo/resolve/main/split_files/vae/ae.safetensors \
-      afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38 Tongyi-MAI/Z-Image-Turbo
+      afc8e28272cd15db3919bacdb6918ce9c1ed22e96cb12c4d5ed0fba823529e38 Tongyi-MAI/Z-Image-Turbo apache-2.0

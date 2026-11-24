@@ -1,0 +1,3 @@
+# Build context = this directory; only the Dockerfile is sent.
+*
+!Dockerfile
