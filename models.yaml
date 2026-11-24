@@ -10,8 +10,18 @@
 # size_gb: from the CI build (bytes / 1e9), used for volume and container-disk sizing.
 # sha256: pinned from the CI build (docker/fetch/fetch.py logs the size + sha256 it verified
 #   against HF's LFS headers x-linked-size / x-linked-etag). null = take HF's LFS sha256.
-# licence_repo: the upstream model card. fetch.py and provision.sh refuse a file whose upstream
-#   card does not report `license: apache-2.0` (DECISIONS X2/D3/D5).
+# licence: what the upstream card (licence_repo) must report; fetch.py refuses the file otherwise.
+#   For a card with `license: other` this is its `license_name`. images.py refuses to render a
+#   licence that is not in approved_licences.
+# licence_files: texts under docker/extras/licenses/ the licence requires to travel with the weights;
+#   copied into the image at /licenses/.
+
+# Licences the owner approved for public images (div-skills: anything not Apache-2.0 needs the
+# owner's explicit ok). Adding one here is that approval; say who and when.
+approved_licences:
+  apache-2.0: DECISIONS X2/D3/D5
+  mit: Sergey, 2026-11-24 (TRELLIS.2, BiRefNet)
+  dinov3-license: Sergey, 2026-11-24 (DINOv3 image encoder of TRELLIS.2; ship the licence text)
 
 datacenter: EU-RO-1
 volume_headroom: 0.15
@@ -88,6 +98,57 @@ files:
     licence_repo: black-forest-labs/FLUX.2-klein-4B
     licence_url: https://huggingface.co/black-forest-labs/FLUX.2-klein-4B
 
+  # TRELLIS.2 image-to-3D (ComfyUI 0.34 native nodes), files as linked by Comfy-Org/workflow_templates
+  # 3d_pixal3d_trellis2_image_to_model.json. sha256 null: CI pins it from HF's LFS headers on the
+  # first build. size_gb from HF's file listing (2026-11-24).
+  - name: trellis_2_int8_convrot
+    url: https://huggingface.co/Comfy-Org/TRELLIS.2/resolve/main/diffusion_models/trellis_2_int8_convrot.safetensors
+    path: models/diffusion_models/trellis_2_int8_convrot.safetensors
+    size_gb: 5.25
+    sha256: null
+    licence: mit
+    licence_repo: microsoft/TRELLIS.2-4B
+    licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
+
+  - name: trellis_2_shape_vae_bf16
+    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_shape_vae_bf16.safetensors
+    path: models/vae/trellis_2_shape_vae_bf16.safetensors
+    size_gb: 1.10
+    sha256: null
+    licence: mit
+    licence_repo: microsoft/TRELLIS.2-4B
+    licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
+
+  - name: trellis_2_texture_vae_bf16
+    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/vae/trellis_2_texture_vae_bf16.safetensors
+    path: models/vae/trellis_2_texture_vae_bf16.safetensors
+    size_gb: 0.95
+    sha256: null
+    licence: mit
+    licence_repo: microsoft/TRELLIS.2-4B
+    licence_url: https://huggingface.co/microsoft/TRELLIS.2-4B
+
+  # DINOv3 ViT-L image encoder (CLIPVisionLoader) used to condition TRELLIS.2.
+  - name: dino_v3_L_naf_fp32
+    url: https://huggingface.co/Comfy-Org/Pixal3D/resolve/main/clip_vision/dino_v3_L_naf_fp32.safetensors
+    path: models/clip_vision/dino_v3_L_naf_fp32.safetensors
+    size_gb: 1.22
+    sha256: null
+    licence: dinov3-license
+    licence_repo: facebook/dinov3-vitl16-pretrain-lvd1689m
+    licence_url: https://github.com/facebookresearch/dinov3/blob/main/LICENSE.md
+    licence_files: [DINOv3-LICENSE.md, DINOv3-NOTICE.txt]
+
+  # Background removal before 3D (LoadBackgroundRemovalModel).
+  - name: birefnet
+    url: https://huggingface.co/Comfy-Org/BiRefNet/resolve/main/background_removal/birefnet.safetensors
+    path: models/background_removal/birefnet.safetensors
+    size_gb: 0.44
+    sha256: null
+    licence: mit
+    licence_repo: ZhengPeng7/BiRefNet
+    licence_url: https://huggingface.co/ZhengPeng7/BiRefNet
+
 # Amendment 1: one Docker image + one serverless endpoint per family, weights baked in at
 # build time (images.py renders docker/<family>/Dockerfile from this; CI builds and pushes
 # ghcr.io/mondaymood-media/kdp-comfy-<family>). Each family holds exactly one model.
@@ -98,6 +159,12 @@ families:
     files: [z_image_turbo_bf16, qwen_3_4b, z_image_vae]
   flux2klein:
     files: [flux2_klein_4b, qwen_3_4b_klein, flux2_vae]
+  # Image -> textured GLB. `handler: outputs` swaps in docker/extras/handler.py, which returns
+  # files of every output kind (the stock handler drops SaveGLB's `3d` output).
+  trellis2:
+    handler: outputs
+    files: [trellis_2_int8_convrot, trellis_2_shape_vae_bf16, trellis_2_texture_vae_bf16,
+            dino_v3_L_naf_fp32, birefnet]
 
 # Bake-off profiles → files they need (by name) and sampler settings. workflows.py builds them.
 profiles:

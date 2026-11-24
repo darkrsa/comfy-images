@@ -1,0 +1,5 @@
+This image contains DINOv3 weights (dino_v3_L_naf_fp32.safetensors, from
+https://huggingface.co/Comfy-Org/Pixal3D), distributed under the DINOv3 License, a copy of which
+is in DINOv3-LICENSE.md next to this file (required by its section 1.b.i). DINOv3 Materials may
+not be used for ITAR-controlled or military purposes, or other end uses prohibited by trade
+controls (section 1.b.v).

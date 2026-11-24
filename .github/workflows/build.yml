@@ -9,7 +9,7 @@ on:
       family:
         description: Image family to build
         type: choice
-        options: [all, zimage-full, zimage-turbo, flux2klein]
+        options: [all, zimage-full, zimage-turbo, flux2klein, trellis2]
         default: all
   push:
     branches: [main]
@@ -50,18 +50,10 @@ jobs:
           INPUT: ${{ inputs.family }}
           BEFORE: ${{ github.event.before }}
         run: |
-          all="$(python images.py families)"
           if [[ "$EVENT" == workflow_dispatch ]]; then
-            [[ "$INPUT" == all ]] && fams="$all" || fams="$INPUT"
-          elif [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-            fams="$all"
+            [[ "$INPUT" == all ]] && fams="$(python images.py families)" || fams="$INPUT"
           else
-            changed="$(git diff --name-only "$BEFORE" "$GITHUB_SHA")"
-            if grep -qE '^((docker/fetch|ci)/|\.github/workflows/build\.yml)' <<<"$changed"; then
-              fams="$all"
-            else
-              fams="$(for f in $all; do grep -q "^docker/$f/" <<<"$changed" && echo "$f"; done | xargs)"
-            fi
+            fams="$(bash ci/plan_families.sh "$BEFORE" "$GITHUB_SHA")"
           fi
           json="$(python -c 'import json,sys; print(json.dumps(sys.argv[1:]))' $fams)"
           echo "families=$json" | tee -a "$GITHUB_OUTPUT"
@@ -116,7 +108,7 @@ jobs:
         run: |
           start=$(date +%s)
           docker build --progress=plain \
-            --build-context fetch=docker/fetch \
+            --build-context fetch=docker/fetch --build-context extras=docker/extras \
             -t "$IMAGE:$TAG" -t "$IMAGE:latest" "$CTX" 2>&1 | tee review/build.log
           echo "BUILD_S=$(( $(date +%s) - start ))" >>"$GITHUB_ENV"
           grep -oE 'verified [^ ]+ [0-9]+ [0-9a-f]{64}' review/build.log | tee review/verified.txt

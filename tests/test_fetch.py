@@ -18,7 +18,9 @@ SHA = hashlib.sha256(BLOB).hexdigest()
 
 
 class FakeHF(BaseHTTPRequestHandler):
-    licences = {"good/repo": "apache-2.0", "bad/repo": "other"}
+    licences = {"good/repo": "apache-2.0", "bad/repo": "other", "named/repo": "other",
+                "mit/repo": "mit"}
+    licence_names = {"named/repo": "dinov3-license"}
     blob = BLOB
     sha = SHA
     drop_first = False  # cut the first body transfer short, to exercise resume
@@ -38,7 +40,10 @@ class FakeHF(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.startswith("/api/models/"):
             repo = self.path[len("/api/models/"):]
-            body = json.dumps({"cardData": {"license": self.licences.get(repo, "unknown")}}).encode()
+            card = {"license": self.licences.get(repo, "unknown")}
+            if repo in self.licence_names:
+                card["license_name"] = self.licence_names[repo]
+            body = json.dumps({"cardData": card}).encode()
             self.send_response(200)
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -106,7 +111,7 @@ def hf(monkeypatch, tmp_path):
 def test_downloads_verifies_and_records(hf, tmp_path, capsys):
     root = tmp_path / "comfyui"
     assert fetch.main(["--root", str(root), "models/unet/m.safetensors",
-                       f"{hf}/resolve/m.safetensors", "-", "good/repo"]) == 0
+                       f"{hf}/resolve/m.safetensors", "-", "good/repo", "apache-2.0"]) == 0
     dest = root / "models/unet/m.safetensors"
     assert dest.read_bytes() == BLOB
     assert not dest.with_name("m.safetensors.part").exists()
@@ -117,17 +122,42 @@ def test_downloads_verifies_and_records(hf, tmp_path, capsys):
 
 
 def test_pinned_sha_must_match(hf, tmp_path, capsys):
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "0" * 64, "good/repo"])
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "0" * 64, "good/repo", "apache-2.0"])
     assert rc == 1
     assert "!= pinned" in capsys.readouterr().err
     assert not (tmp_path / "a.safetensors").exists()
 
 
-def test_refuses_non_apache_licence(hf, tmp_path, capsys):
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "bad/repo"])
+def test_refuses_a_licence_other_than_declared(hf, tmp_path, capsys):
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "bad/repo",
+                     "apache-2.0"])
+    assert rc == 1
+    assert "licence is 'other', expected 'apache-2.0'" in capsys.readouterr().err
+    assert FakeHF.gets == []  # nothing downloaded
+
+
+def test_refuses_when_declared_licence_differs_from_an_approved_card(hf, tmp_path, capsys):
+    # The card says mit; models.yaml claimed apache-2.0: the mismatch is refused, not trusted.
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "mit/repo",
+                     "apache-2.0"])
+    assert rc == 1
+    assert "licence is 'mit', expected 'apache-2.0'" in capsys.readouterr().err
+    assert FakeHF.gets == []
+
+
+def test_custom_licence_is_matched_by_its_name(hf, tmp_path):
+    assert fetch.licence_of("named/repo") == "dinov3-license"
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "named/repo",
+                     "dinov3-license"])
+    assert rc == 0
+    assert (tmp_path / "a.safetensors").read_bytes() == BLOB
+
+
+def test_bare_other_is_not_a_licence_name(hf, tmp_path, capsys):
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "bad/repo",
+                     "dinov3-license"])
     assert rc == 1
     assert "licence is 'other'" in capsys.readouterr().err
-    assert FakeHF.gets == []  # nothing downloaded
 
 
 def test_follows_same_host_hops_but_not_the_cdn(hf, monkeypatch):
@@ -137,14 +167,14 @@ def test_follows_same_host_hops_but_not_the_cdn(hf, monkeypatch):
 
 
 def test_missing_file_is_a_clear_error(hf, tmp_path, capsys):
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/missing", "-", "good/repo"])
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/missing", "-", "good/repo", "apache-2.0"])
     assert rc == 1
     assert "HTTP 404" in capsys.readouterr().err
 
 
 def test_corrupt_download_is_deleted(hf, tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(FakeHF, "blob", b"x" * len(BLOB))  # same size, wrong bytes
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo"])
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo", "apache-2.0"])
     assert rc == 1
     assert "sha256" in capsys.readouterr().err
     assert list(tmp_path.glob("a.safetensors*")) == []
@@ -153,7 +183,7 @@ def test_corrupt_download_is_deleted(hf, tmp_path, monkeypatch, capsys):
 def test_interrupted_download_resumes_within_its_range(hf, tmp_path, monkeypatch):
     monkeypatch.setattr(fetch, "PARTS", 1)
     FakeHF.drop_first = True
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo"])
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo", "apache-2.0"])
     assert rc == 0
     assert (tmp_path / "a.safetensors").read_bytes() == BLOB
     first, second = FakeHF.gets[1:3]
@@ -164,7 +194,7 @@ def test_interrupted_download_resumes_within_its_range(hf, tmp_path, monkeypatch
 def test_parallel_ranges_reassemble_the_file(hf, tmp_path, monkeypatch):
     monkeypatch.setattr(fetch, "RANGE", 1000)   # 17 ranges over 17 kB
     monkeypatch.setattr(fetch, "PARTS", 4)
-    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo"])
+    rc = fetch.main(["--root", str(tmp_path), "a.safetensors", f"{hf}/resolve/a", "-", "good/repo", "apache-2.0"])
     assert rc == 0
     assert (tmp_path / "a.safetensors").read_bytes() == BLOB
     assert len(FakeHF.gets) == 1 + 17
