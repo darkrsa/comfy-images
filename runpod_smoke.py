@@ -54,7 +54,9 @@ def _call(method: str, url: str, body: dict[str, Any] | None = None) -> Any:
 
 def serverless_rate_per_s(pool: str) -> float:
     """Highest serverless $/h among the GPUs in `pool`, per second (worst case)."""
-    prices = [g["price"]["serverless"] for g in _call("GET", f"{API}/catalog/gpus")
+    catalog = _call("GET", f"{API}/catalog/gpus")
+    gpus = catalog.get("gpus", []) if isinstance(catalog, dict) else catalog
+    prices = [g["price"]["serverless"] for g in gpus
               if g.get("pool") == pool and (g.get("price") or {}).get("serverless")]
     if not prices:
         raise SmokeError(f"no serverless price for pool {pool}")
