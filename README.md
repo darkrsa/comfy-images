@@ -22,15 +22,36 @@ The images contain no application code: only the upstream worker image plus weig
 downloaded from Hugging Face at build time, checked against a pinned sha256, and refused unless
 its model card reports `license: apache-2.0`. Each image was scanned (gitleaks) before publishing.
 
-## How these are published
+## How these are built
 
-`.github/workflows/copy-images` copies a built tag from the build registry into this namespace
-registry to registry (no rebuild; layers stay byte-identical, which the workflow verifies) and only
-rewrites `org.opencontainers.image.source` to point at this repository.
+| Path | Purpose |
+|---|---|
+| `models.yaml` | Every weight file (URL, sha256, size, licence card) and which family bakes which files |
+| `images.py` | Renders `docker/<family>/Dockerfile` + `.dockerignore` from models.yaml (`render`, `check`, `families`) |
+| `docker/fetch/fetch.py` | Build-time downloader (stdlib only), bind-mounted into each `RUN`, never copied into a layer. Refuses non-Apache upstream cards; verifies size + sha256 |
+| `ci/` | Runner disk setup and the per-image review manifest (files added vs the base, for the secret scan) |
+| `.github/workflows/build.yml` | Builds, secret-scans (gitleaks, fails on any finding) and pushes one image per family |
+| `.github/workflows/test.yml` | Offline tests + "Dockerfiles match models.yaml" on every push and PR |
+
+Build: Actions → **build-images** → Run workflow (a family or `all`), or merge a change under
+`docker/**` / `ci/**` to `main` (only the touched families rebuild). To change weights, edit
+`models.yaml`, run `python images.py render` and commit both.
+
+Each push gets `<yyyymmdd>-<shortsha>` and `latest`. Point RunPod templates at a dated tag
+(kdp-studio: `python setup.py template --tag <tag>` in `infra/runpod-serverless/`), not `latest`.
+
+Local build (~70 GB free):
+
+```bash
+docker build --build-context fetch=docker/fetch -t kdp-comfy-zimage-turbo:dev docker/zimage-turbo
+```
+
+The first published tag, `20261123-2fbb16c`, was built in a private registry and copied here
+registry to registry (layers byte-identical, only the `source` label rewritten).
 
 ## Licenses
 
-The files in this repository (README, workflows) are MIT, see [LICENSE](LICENSE).
+The files in this repository (scripts, Dockerfiles, workflows, docs) are MIT, see [LICENSE](LICENSE).
 The images bundle third-party software and weights under their own licenses:
 
 | Component | License | Source |
