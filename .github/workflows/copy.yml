@@ -1,0 +1,102 @@
+# Copies the kdp-comfy-* ComfyUI worker images from the private org registry into this account's
+# public GHCR namespace, without rebuilding: layers are copied registry to registry, then only the
+# image config is rewritten so org.opencontainers.image.source points here (that label links each
+# package to this repository).
+#
+# Secret SRC_GHCR_TOKEN: a classic PAT with read:packages only, for ghcr.io/mondaymood-media.
+# Writes use this repository's GITHUB_TOKEN (packages: write).
+name: copy-images
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Source tag in ghcr.io/mondaymood-media/kdp-comfy-<family>
+        default: 20261123-2fbb16c
+        required: true
+  push:
+    branches: ["claude/**"]
+    paths: [".github/workflows/copy.yml"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  SRC_NS: ghcr.io/mondaymood-media
+  DST_NS: ghcr.io/${{ github.repository_owner }}
+  SOURCE_URL: https://github.com/${{ github.repository }}
+  TAG: ${{ inputs.tag || '20261123-2fbb16c' }}
+  CRANE_VERSION: v0.20.2
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        family: [flux2klein, zimage-turbo, zimage-full]
+    env:
+      SRC: ghcr.io/mondaymood-media/kdp-comfy-${{ matrix.family }}
+      DST: ghcr.io/${{ github.repository_owner }}/kdp-comfy-${{ matrix.family }}
+    steps:
+      - name: Source token present
+        env:
+          SRC_TOKEN: ${{ secrets.SRC_GHCR_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          [ -n "$SRC_TOKEN" ] || { echo "::error::secret SRC_GHCR_TOKEN is not set (classic PAT, read:packages)"; exit 1; }
+
+      - name: Install crane
+        run: |
+          set -Eeuo pipefail
+          curl -fsSL "https://github.com/google/go-containerregistry/releases/download/${CRANE_VERSION}/go-containerregistry_Linux_x86_64.tar.gz" \
+            | tar -xz -C /usr/local/bin crane
+          crane version
+
+      - name: Copy layers (registry to registry, no rebuild)
+        env:
+          SRC_TOKEN: ${{ secrets.SRC_GHCR_TOKEN }}
+          DST_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          # skopeo takes separate source and destination credentials for the same host;
+          # the copy lands on a staging tag, the final tags come from the relabel step.
+          skopeo copy --retry-times 3 \
+            --src-creds "${{ github.repository_owner }}:${SRC_TOKEN}" \
+            --dest-creds "${{ github.repository_owner }}:${DST_TOKEN}" \
+            "docker://${SRC}:${TAG}" "docker://${DST}:staging"
+
+      - name: Relabel source → this repository, tag
+        env:
+          DST_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          echo "$DST_TOKEN" | crane auth login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+          new=$(crane mutate "${DST}:staging" \
+            --label "org.opencontainers.image.source=${SOURCE_URL}" \
+            --label "org.opencontainers.image.url=${SOURCE_URL}" \
+            -t "${DST}:${TAG}")
+          crane tag "$new" latest
+          echo "pushed $new"
+
+      - name: Verify layers are byte-identical to the source
+        env:
+          SRC_TOKEN: ${{ secrets.SRC_GHCR_TOKEN }}
+          DST_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -Eeuo pipefail
+          src_layers=$(skopeo inspect --raw --creds "${{ github.repository_owner }}:${SRC_TOKEN}" "docker://${SRC}:${TAG}" | jq -r '[.layers[].digest]|join(",")')
+          dst_layers=$(skopeo inspect --raw --creds "${{ github.repository_owner }}:${DST_TOKEN}" "docker://${DST}:${TAG}" | jq -r '[.layers[].digest]|join(",")')
+          [ "$src_layers" = "$dst_layers" ] || { echo "::error::layer digests differ"; exit 1; }
+          label=$(skopeo inspect --creds "${{ github.repository_owner }}:${DST_TOKEN}" "docker://${DST}:${TAG}" | jq -r '.Labels["org.opencontainers.image.source"]')
+          [ "$label" = "$SOURCE_URL" ] || { echo "::error::source label is $label"; exit 1; }
+          size=$(skopeo inspect --raw --creds "${{ github.repository_owner }}:${DST_TOKEN}" "docker://${DST}:${TAG}" | jq '[.layers[].size]|add/1e9*100|floor/100')
+          {
+            echo "### ${DST}:${TAG}"
+            echo "- layers identical to \`${SRC}:${TAG}\` ($(echo "$dst_layers" | tr ',' '\n' | wc -l) layers, ${size} GB compressed)"
+            echo "- \`org.opencontainers.image.source\` = ${SOURCE_URL}"
+            echo "- digest \`$(skopeo inspect --creds "${{ github.repository_owner }}:${DST_TOKEN}" "docker://${DST}:${TAG}" | jq -r .Digest)\`"
+          } >> "$GITHUB_STEP_SUMMARY"
