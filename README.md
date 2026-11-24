@@ -65,7 +65,7 @@ and drop the rest). On a timeout or failure the prompt is removed from ComfyUI's
 interrupted, so a warm worker's next job does not wait behind it. Settings must be positive
 numbers or the worker refuses to start. Use `SaveGLB` in API workflows; `Save3DAdvanced`
 needs the web UI's viewport state. Other settings: `COMFY_STARTUP_TIMEOUT_S` (600),
-`COMFY_JOB_TIMEOUT_S` (1800). The 1536 upsample stage does not fit 24 GB (OOM in VaeDecodeShapeTrellis, 2026-11-24); the workflow uses 1024.
+`COMFY_JOB_TIMEOUT_S` (1800). The ComfyUI template (upsample 1536, remesh 768, 700k faces) does not fit 24 GB: OOM in VaeDecodeShapeTrellis at 1536 and in RemeshMesh at 768 (2026-11-24, AMPERE_24); the workflow uses 1024 / 512 / 80k.
 
 ## How these are built
 

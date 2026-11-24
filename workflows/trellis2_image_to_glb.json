@@ -355,7 +355,7 @@
     "24",
     0
    ],
-   "resolution": 768,
+   "resolution": 512,
    "sign_mode": "udf",
    "sign_mode.qef": false,
    "sign_mode.drop_inverted_components": false,
