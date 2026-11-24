@@ -30,6 +30,10 @@ API = "https://api.runpod.io/v2"
 JOBS = "https://api.runpod.ai/v2"
 HTTP_TIMEOUT_S = 120
 ALLOWED_POOLS = ("AMPERE_24", "ADA_24")   # project rule: 24 GB pools only, never escalate
+# --r2: the handler uploads every output to Cloudflare R2. Values come from RunPod secrets with these
+# names (RunPod console -> Secrets), never from this script or its arguments.
+R2_SECRETS = {"BUCKET_ENDPOINT_URL": "r2_endpoint_url", "BUCKET_NAME": "r2_bucket",
+              "BUCKET_ACCESS_KEY_ID": "r2_access_key_id", "BUCKET_SECRET_ACCESS_KEY": "r2_secret_access_key"}
 
 
 class SmokeError(RuntimeError):
@@ -107,7 +111,8 @@ def run(args: argparse.Namespace) -> int:
     try:
         template = _call("POST", f"{API}/templates", {
             "name": f"smoke-{tag}", "image": args.image, "disk": 20, "serverless": True,
-            "env": {"MAX_RESULT_MB": str(args.max_result_mb)}})
+            "env": {"MAX_RESULT_MB": str(args.max_result_mb),
+                    **({k: "{{ RUNPOD_SECRET_%s }}" % v for k, v in R2_SECRETS.items()} if args.r2 else {})}})
         state["template_id"] = template["id"]
         record(state_file, state)
         endpoint = _call("POST", f"{API}/serverless", {
@@ -144,10 +149,22 @@ def run(args: argparse.Namespace) -> int:
         output = status.get("output") or {}
         if status.get("status") != "COMPLETED" or "error" in output:
             raise SmokeError(f"job {status.get('status')}: {json.dumps(output or status.get('error'))[:2000]}")
+        for warning in output.get("warnings", []):
+            print(f"handler warning: {warning}", flush=True)
+        state["files"] = []
         for item in output.get("files", []):
             target = out / Path(item["filename"]).name
-            target.write_bytes(base64.b64decode(item["base64"]))
-            print(f"saved {target} ({item['bytes']} bytes, node {item['node']}, {item['kind']})")
+            if item.get("base64"):
+                target.write_bytes(base64.b64decode(item["base64"]))
+            elif item.get("url"):
+                with urllib.request.urlopen(item["url"], timeout=HTTP_TIMEOUT_S) as resp:
+                    target.write_bytes(resp.read())
+            else:
+                print(f"NOT saved {item['filename']}: no inline data and no link", flush=True)
+                continue
+            state["files"].append({"file": str(target), "key": item.get("key")})
+            print(f"saved {target} ({item['bytes']} bytes, node {item['node']}, {item['kind']}, "
+                  f"bucket key {item.get('key')})")
         return 0
     finally:
         for line in teardown(state):
@@ -165,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="out")
     ap.add_argument("--gpu", default="AMPERE_24")
     ap.add_argument("--max-usd", type=float, default=1.0)
-    ap.add_argument("--max-result-mb", type=float, default=15)
+    ap.add_argument("--max-result-mb", type=float, default=9, help="inline reply cap; /run allows 10 MB")
+    ap.add_argument("--r2", action="store_true", help="have the handler upload outputs to R2 (RunPod secrets r2_*)")
     ap.add_argument("--timeout-s", type=float, default=3600)
     ap.add_argument("--poll-s", type=float, default=15)
     ap.add_argument("--teardown", help="created.json of an earlier run: delete what it lists, then exit")

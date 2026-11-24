@@ -107,6 +107,9 @@ def comfy(monkeypatch):
     monkeypatch.setattr(H, "POLL_S", 0.01)
     monkeypatch.setattr(H, "JOB_TIMEOUT_S", 5.0)   # a hang in a test fails instead of waiting 30 min
     monkeypatch.setattr(H, "STARTUP_TIMEOUT_S", 5.0)
+    monkeypatch.setattr(H, "RESULT_DIR", "")
+    for name in H.BUCKET_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
     yield FakeComfy
     server.shutdown()
 
@@ -155,28 +158,110 @@ def _result_size(result):
     return len(json.dumps(result))
 
 
-def test_result_over_the_cap_fails_with_the_file_named(comfy, monkeypatch):
-    monkeypatch.setattr(H, "MAX_RESULT_BYTES", H.encoded_size(len(GLB)))   # no room for JSON
+class FakeBucket:
+    """Stands in for the boto3 S3 client: records puts, signs a fake URL."""
+    def __init__(self, fail=False):
+        self.objects, self.fail = {}, fail
+
+    def put_object(self, Bucket, Key, Body):
+        if self.fail:
+            raise RuntimeError("R2 says no")
+        self.objects[(Bucket, Key)] = Body
+
+    def generate_presigned_url(self, op, Params, ExpiresIn):
+        assert op == "get_object" and ExpiresIn > 0
+        return f"https://r2.example/{Params['Bucket']}/{Params['Key']}?sig"
+
+
+@pytest.fixture
+def bucket(monkeypatch):
+    fake = FakeBucket()
+    monkeypatch.setenv("BUCKET_NAME", "zaffy-results")
+    monkeypatch.setattr(H, "bucket_client", lambda: fake)
+    return fake
+
+
+def test_every_output_is_uploaded_and_inlined_when_it_fits(comfy, bucket):
     result = H.handler(_job())
-    assert result["error"].startswith("OutputTooLargeError: result would exceed")
-    assert "mesh_00001_.glb" in result["error"]
+    assert result["warnings"] == []
+    glb = result["files"][0]
+    assert glb["key"] == "results/job-1/3d/mesh_00001_.glb"
+    assert glb["url"].startswith("https://r2.example/zaffy-results/results/job-1/3d/")
+    assert bucket.objects[("zaffy-results", glb["key"])] == GLB
+    assert base64.b64decode(glb["base64"]) == GLB
 
 
-def test_cap_counts_the_encoded_result_not_raw_bytes(comfy, monkeypatch):
-    # One file whose raw bytes fit and whose base64 does not: must fail (the transport limit
-    # applies to what is sent).
+def test_output_over_the_inline_cap_is_kept_and_linked_not_failed(comfy, bucket, monkeypatch):
+    monkeypatch.setattr(H, "MAX_RESULT_BYTES", 2_000)   # GLB base64 (~4 kB) cannot fit, PNG can
+    result = H.handler(_job())
+    assert "error" not in result, result
+    glb, png = result["files"]
+    assert "base64" not in glb and bucket.objects[("zaffy-results", glb["key"])] == GLB
+    assert base64.b64decode(png["base64"]) == PNG
+    assert len(result["warnings"]) == 1 and "mesh_00001_.glb" in result["warnings"][0]
+    assert "uploaded to results/job-1/3d/mesh_00001_.glb" in result["warnings"][0]
+    assert _result_size(result) <= 2_000
+
+
+def test_without_any_store_an_oversized_output_is_reported_as_lost(comfy, monkeypatch):
+    monkeypatch.setattr(H, "bucket_client", lambda: None)
+    monkeypatch.setattr(H, "MAX_RESULT_BYTES", 2_000)
+    result = H.handler(_job())
+    assert "error" not in result
+    assert "NOT stored" in result["warnings"][0] and result["files"][0]["url"] is None
+
+
+def test_cap_counts_the_encoded_result_not_raw_bytes(comfy, bucket, monkeypatch):
+    # The raw bytes fit, the base64 does not: the file must go by link (the limit applies to what is sent).
     monkeypatch.setattr(FakeComfy, "outputs", {"9": FakeComfy.outputs["9"]})
     full = _result_size(H.handler(_job()))
     base64_growth = H.encoded_size(len(GLB)) - len(GLB)
-    monkeypatch.setattr(H, "MAX_RESULT_BYTES", full - base64_growth // 2)   # raw-byte count would fit
-    assert H.handler(_job())["error"].startswith("OutputTooLargeError")
+    monkeypatch.setattr(H, "MAX_RESULT_BYTES", full - base64_growth // 2)
+    result = H.handler(_job())
+    assert "base64" not in result["files"][0] and result["warnings"]
 
 
-def test_result_under_the_cap_passes_and_respects_it(comfy, monkeypatch):
+def test_result_under_the_cap_passes_and_respects_it(comfy, bucket, monkeypatch):
     monkeypatch.setattr(H, "MAX_RESULT_BYTES", 10_000)
     result = H.handler(_job())
-    assert len(result["files"]) == 2
+    assert all("base64" in f for f in result["files"])
     assert _result_size(result) <= 10_000
+
+
+def test_failed_upload_is_a_warning_and_the_file_still_comes_back(comfy, monkeypatch):
+    monkeypatch.setenv("BUCKET_NAME", "zaffy-results")
+    monkeypatch.setattr(H, "bucket_client", lambda: FakeBucket(fail=True))
+    result = H.handler(_job())
+    assert base64.b64decode(result["files"][0]["base64"]) == GLB
+    assert any("R2 says no" in w for w in result["warnings"])
+
+
+def test_result_dir_keeps_a_copy(comfy, monkeypatch, tmp_path):
+    monkeypatch.setattr(H, "bucket_client", lambda: None)
+    monkeypatch.setattr(H, "RESULT_DIR", str(tmp_path))
+    result = H.handler(_job())
+    stored = Path(result["files"][0]["stored"])
+    assert stored == tmp_path / "job-1" / "3d" / "mesh_00001_.glb" and stored.read_bytes() == GLB
+
+
+@pytest.mark.parametrize("filename", ["../escape.glb", "..", "a/b.glb"])
+def test_unsafe_output_names_are_not_written_outside_the_store(comfy, monkeypatch, tmp_path, filename):
+    monkeypatch.setattr(H, "bucket_client", lambda: None)
+    monkeypatch.setattr(H, "RESULT_DIR", str(tmp_path / "store"))
+    monkeypatch.setattr(FakeComfy, "outputs", {"9": {"3d": [{"filename": filename, "subfolder": "", "type": "output"}]}})
+    monkeypatch.setattr(FakeComfy, "files", {("", filename): GLB})
+    result = H.handler(_job())
+    assert any("could not store" in w for w in result["warnings"])
+    assert not (tmp_path / "escape.glb").exists()
+
+
+def test_partial_bucket_settings_are_refused(monkeypatch):
+    for name in H.BUCKET_SETTINGS:
+        monkeypatch.delenv(name, raising=False)
+    assert H.bucket_client() is None
+    monkeypatch.setenv("BUCKET_NAME", "zaffy-results")
+    with pytest.raises(H.ConfigError, match="BUCKET_ENDPOINT_URL"):
+        H.bucket_client()
 
 
 def test_invalid_node_fails_the_job_even_when_comfy_queues_the_rest(comfy, monkeypatch):
@@ -220,11 +305,11 @@ def test_a_file_reported_twice_is_returned_once():
                                               ("-1", "must be > 0"), ("nan", "must be > 0")])
 def test_bad_settings_are_refused(raw, message):
     with pytest.raises(H.ConfigError, match=message):
-        H.positive_setting("MAX_RESULT_MB", 15, {"MAX_RESULT_MB": raw})
+        H.positive_setting("MAX_RESULT_MB", 9, {"MAX_RESULT_MB": raw})
 
 
 def test_default_setting_is_used_when_unset():
-    assert H.positive_setting("MAX_RESULT_MB", 15, {}) == 15
+    assert H.positive_setting("MAX_RESULT_MB", 9, {}) == 9
 
 
 def test_history_timeout_is_an_error(comfy, monkeypatch):

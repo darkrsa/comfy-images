@@ -8,9 +8,19 @@ Job input:
     {"workflow": {<ComfyUI API-format prompt>},
      "images": [{"name": "zaffy.png", "image": "<base64, optional data: prefix>"}]}   # optional
 Job output:
-    {"files": [{"node": "9", "kind": "3d", "filename": "mesh_00001_.glb",
-                "bytes": 1234, "base64": "<...>"}]}
+    {"files": [{"node": "9", "kind": "3d", "filename": "mesh_00001_.glb", "bytes": 1234,
+                "key": "results/<job id>/3d/mesh_00001_.glb",       # null without a bucket
+                "url": "https://...presigned GET, RESULT_URL_TTL_S...",  # null without a bucket
+                "stored": "/runpod-volume/results/<job id>/3d/...",   # null without RESULT_DIR
+                "base64": "<...>"}],                    # only while the reply fits MAX_RESULT_MB
+     "warnings": ["mesh_00001_.glb: 20.9 MB is over the 9 MB inline limit; uploaded to ..."]}
 A failure returns {"error": "<reason>"}, which RunPod reports as a failed job.
+
+A finished output is never thrown away for its size. Every file is first uploaded to an S3-compatible
+bucket (Cloudflare R2: BUCKET_ENDPOINT_URL, BUCKET_NAME, BUCKET_ACCESS_KEY_ID, BUCKET_SECRET_ACCESS_KEY,
+set as RunPod secrets) and/or written under RESULT_DIR (a mounted network volume); a file that does not
+fit the reply is returned by link with a warning. With neither configured such a file is reported in a
+warning but cannot be kept.
 
 Only files written to ComfyUI's output folder (`type: output`) are returned; previews (`temp`)
 are skipped. The started ComfyUI server is reached at COMFY_URL (default http://127.0.0.1:8188).
@@ -56,11 +66,16 @@ STARTUP_TIMEOUT_S = positive_setting("COMFY_STARTUP_TIMEOUT_S", 600)
 JOB_TIMEOUT_S = positive_setting("COMFY_JOB_TIMEOUT_S", 1800)
 POLL_S = positive_setting("COMFY_POLL_S", 1.0)
 HTTP_TIMEOUT_S = 60.0
-# Cap on the result as sent: base64 of every file plus the JSON around it. RunPod job results are
-# size-limited; above this the job fails with a clear message instead of an opaque transport error.
-# Unmeasured against RunPod's actual limit: lower DecimateMesh's face count or the texture size,
-# or raise this after measuring.
-MAX_RESULT_BYTES = int(positive_setting("MAX_RESULT_MB", 15) * 1e6)
+# Cap on the inline reply: base64 of the inlined files plus the JSON around it. RunPod's payload
+# limit is 10 MB for /run and 20 MB for /runsync (handler docs, 2026-11-24); 9 MB leaves headroom.
+# Files that do not fit are returned by path (see RESULT_DIR), never dropped with an error.
+MAX_RESULT_BYTES = int(positive_setting("MAX_RESULT_MB", 9) * 1e6)
+# Largest single output file the handler reads into memory; a bigger one fails the job.
+MAX_FILE_BYTES = int(positive_setting("MAX_OUTPUT_FILE_MB", 2000) * 1e6)
+# Where every output is stored before the reply, e.g. /runpod-volume/results. Empty: not stored.
+RESULT_DIR = os.environ.get("RESULT_DIR", "")
+BUCKET_SETTINGS = ("BUCKET_ENDPOINT_URL", "BUCKET_NAME", "BUCKET_ACCESS_KEY_ID", "BUCKET_SECRET_ACCESS_KEY")
+RESULT_URL_TTL_S = positive_setting("RESULT_URL_TTL_S", 7 * 86400)   # presigned link lifetime
 TRANSPORT_ERRORS = (urllib.error.URLError, http.client.HTTPException, ConnectionError, TimeoutError)
 # History messages that only report progress; everything else in a failed prompt's status is shown.
 PROGRESS_MESSAGES = {"execution_start", "execution_cached", "execution_success"}
@@ -75,7 +90,7 @@ class ComfyError(RuntimeError):
 
 
 class OutputTooLargeError(RuntimeError):
-    """The encoded result would exceed MAX_RESULT_BYTES."""
+    """One output file is larger than MAX_FILE_BYTES."""
 
 
 @dataclass(frozen=True)
@@ -242,30 +257,73 @@ def encoded_size(raw_bytes: int) -> int:
     return 4 * ((raw_bytes + 2) // 3)
 
 
-def read_output(ref: OutputRef, budget: int) -> bytes:
-    """Fetch one output file, refusing it before download when its Content-Length already breaks
-    the remaining budget (encoded bytes), and while reading when the server sends no length."""
-    if budget <= 0:
-        raise OutputTooLargeError(_too_large(ref, 0))
+def read_output(ref: OutputRef) -> bytes:
+    """Fetch one output file whole; raises OutputTooLargeError above MAX_FILE_BYTES."""
     query = urllib.parse.urlencode({"filename": ref.filename, "subfolder": ref.subfolder, "type": "output"})
     req = urllib.request.Request(f"{COMFY_URL}/view?{query}")
     with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT_S) as resp:
-        length = resp.headers.get("Content-Length")
-        if length and length.isdigit() and encoded_size(int(length)) > budget:
-            raise OutputTooLargeError(_too_large(ref, int(length)))
-        content: bytes = resp.read(budget + 1)   # base64 is longer than raw: budget bounds raw too
-        if encoded_size(len(content)) > budget:
-            raise OutputTooLargeError(_too_large(ref, len(content)))
-        return content
+        content: bytes = resp.read(MAX_FILE_BYTES + 1)
+    if len(content) > MAX_FILE_BYTES:
+        raise OutputTooLargeError(f"{ref.filename} is over {MAX_FILE_BYTES / 1e6:.0f} MB")
+    return content
 
 
-def _too_large(ref: OutputRef, raw_bytes: int) -> str:
-    return (f"result would exceed {MAX_RESULT_BYTES / 1e6:.0f} MB at {ref.filename} "
-            f"({raw_bytes / 1e6:.1f} MB raw); reduce the mesh face count or texture size")
+def _safe_part(part: str) -> str:
+    """One path component from ComfyUI or RunPod, refused when it could leave its folder."""
+    if part in ("", ".", "..") or "/" in part or "\\" in part or "\0" in part:
+        raise ValueError(f"unsafe path component {part!r}")
+    return part
 
 
-def run(job_input: Any) -> dict[str, Any]:
-    """The whole job: validate, upload, queue, wait, collect. Raises the typed errors above."""
+def store(job_id: str, ref: OutputRef, content: bytes) -> str | None:
+    """Write the file under RESULT_DIR/<job id>/<subfolder>/<filename>; returns the path, or None
+    when RESULT_DIR is unset. Written to a temporary name first, so a path that exists is complete."""
+    if not RESULT_DIR:
+        return None
+    folder = os.path.join(RESULT_DIR, _safe_part(job_id),
+                          *[_safe_part(p) for p in ref.subfolder.split("/") if p])
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, _safe_part(ref.filename))
+    tmp = f"{path}.part"
+    with open(tmp, "wb") as handle:
+        handle.write(content)
+    os.replace(tmp, path)
+    return path
+
+
+def bucket_client() -> Any | None:
+    """An S3 client for the result bucket, or None when no BUCKET_* setting is present.
+    Some but not all of them set is a ConfigError (a typo must not silently drop uploads)."""
+    present = [name for name in BUCKET_SETTINGS if os.environ.get(name)]
+    if not present:
+        return None
+    if len(present) != len(BUCKET_SETTINGS):
+        missing = sorted(set(BUCKET_SETTINGS) - set(present))
+        raise ConfigError(f"bucket settings incomplete, missing {', '.join(missing)}")
+    import boto3  # type: ignore[import-untyped,import-not-found,unused-ignore]  # a dependency of the runpod SDK in the base image
+    from botocore.config import Config  # type: ignore[import-untyped,import-not-found,unused-ignore]
+
+    return boto3.client(
+        "s3", endpoint_url=os.environ["BUCKET_ENDPOINT_URL"], region_name="auto",
+        aws_access_key_id=os.environ["BUCKET_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["BUCKET_SECRET_ACCESS_KEY"],
+        config=Config(signature_version="s3v4", retries={"max_attempts": 5, "mode": "standard"}))
+
+
+def upload(client: Any, job_id: str, ref: OutputRef, content: bytes) -> tuple[str, str]:
+    """Put the file at results/<job id>/<subfolder>/<filename>; returns (key, presigned GET url)."""
+    parts = ["results", _safe_part(job_id), *[_safe_part(p) for p in ref.subfolder.split("/") if p],
+             _safe_part(ref.filename)]
+    key = "/".join(parts)
+    bucket = os.environ["BUCKET_NAME"]
+    client.put_object(Bucket=bucket, Key=key, Body=content)
+    url: str = client.generate_presigned_url(
+        "get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=int(RESULT_URL_TTL_S))
+    return key, url
+
+
+def run(job_input: Any, job_id: str = "local") -> dict[str, Any]:
+    """The whole job: validate, upload, queue, wait, store, collect. Raises the typed errors above."""
     workflow, images = parse_input(job_input)
     wait_for_comfy()
     for image in images:
@@ -280,22 +338,52 @@ def run(job_input: Any) -> dict[str, Any]:
     if not refs:
         raise ComfyError("workflow finished but saved no output file (is there a Save* node?)")
     files: list[dict[str, Any]] = []
-    used = len('{"files": []}')
+    warnings: list[str] = []
+    used = len('{"files": [], "warnings": []}')
+    try:
+        client = bucket_client()
+    except (ConfigError, ImportError) as exc:
+        client = None
+        warnings.append(f"result bucket unavailable: {exc}")
+        log.error("job %s: result bucket unavailable: %s", job_id, exc)
     for ref in refs:
-        entry = {"node": ref.node, "kind": ref.kind, "filename": ref.filename, "bytes": 0, "base64": ""}
-        overhead = len(json.dumps(entry)) + 32   # keys, punctuation, the byte count's digits
-        content = read_output(ref, MAX_RESULT_BYTES - used - overhead)
-        encoded = base64.b64encode(content).decode()
-        entry.update(bytes=len(content), base64=encoded)
-        used += overhead + len(encoded)
+        content = read_output(ref)
+        key = url = stored = None
+        if client is not None:
+            try:
+                key, url = upload(client, job_id, ref, content)
+            except Exception as exc:   # botocore raises many types; the file must still be reported
+                warnings.append(f"{ref.filename}: upload to the result bucket failed: {exc}")
+                log.error("job %s: uploading %s failed: %s", job_id, ref.filename, exc)
+        try:
+            stored = store(job_id, ref, content)
+        except (OSError, ValueError) as exc:
+            warnings.append(f"{ref.filename}: could not store under {RESULT_DIR}: {exc}")
+            log.error("job %s: storing %s failed: %s", job_id, ref.filename, exc)
+        entry: dict[str, Any] = {"node": ref.node, "kind": ref.kind, "filename": ref.filename,
+                                 "bytes": len(content), "key": key, "url": url, "stored": stored}
+        size = len(json.dumps(entry)) + 2
+        inline = size + len(', "base64": ""') + encoded_size(len(content))
+        if used + inline <= MAX_RESULT_BYTES:
+            entry["base64"] = base64.b64encode(content).decode()
+            size = inline
+        else:
+            kept = ([f"uploaded to {key}"] if key else []) + ([f"stored at {stored}"] if stored else [])
+            where = "; ".join(kept) or "NOT stored (no result bucket or RESULT_DIR), file lost"
+            note = (f"{ref.filename}: {len(content) / 1e6:.1f} MB is over the "
+                    f"{MAX_RESULT_BYTES / 1e6:.0f} MB inline limit; {where}")
+            warnings.append(note)
+            log.warning("job %s: %s", job_id, note)
+        used += size
         files.append(entry)
-    return {"files": files}
+    used += sum(len(json.dumps(w)) + 2 for w in warnings)
+    return {"files": files, "warnings": warnings}
 
 
 def handler(job: dict[str, Any]) -> dict[str, Any]:
     """RunPod entry point: a result, or {"error": ...} for a failed job."""
     try:
-        return run(job.get("input"))
+        return run(job.get("input"), str(job.get("id") or "local"))
     except (JobInputError, ComfyError, OutputTooLargeError) as exc:
         log.error("job %s failed: %s", job.get("id"), exc)
         return {"error": f"{type(exc).__name__}: {exc}"}

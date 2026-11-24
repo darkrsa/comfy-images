@@ -45,13 +45,21 @@ every file saved to ComfyUI's output folder, whatever its kind:
 ```json
 {"input": {"workflow": {"...": "ComfyUI API-format prompt with LoadImage + ... + SaveGLB"},
            "images": [{"name": "zaffy.png", "image": "<base64>"}]}}
-→ {"output": {"files": [{"node": "9", "kind": "3d", "filename": "mesh_00001_.glb",
-                          "bytes": 1234, "base64": "<...>"}]}}
+→ {"output": {"files": [{"node": "9", "kind": "3d", "filename": "mesh_00001_.glb", "bytes": 1234,
+                          "key": "results/<job>/3d/mesh_00001_.glb", "url": "<presigned GET>",
+                          "stored": null, "base64": "<... only while the reply fits>"}],
+               "warnings": []}}
 ```
 
-Previews (`type: temp`) are not returned; a file reported twice is returned once. A result above
-`MAX_RESULT_MB` (default 15, counted as sent: base64 plus JSON; unmeasured against RunPod's result
-limit) fails the job with the file's size: lower the `DecimateMesh` face count or the texture size.
+**A finished output is never dropped for its size.** Every file is first uploaded to an
+S3-compatible bucket (Cloudflare R2) when `BUCKET_ENDPOINT_URL`, `BUCKET_NAME`,
+`BUCKET_ACCESS_KEY_ID` and `BUCKET_SECRET_ACCESS_KEY` are set (as RunPod secret references,
+`{{ RUNPOD_SECRET_r2_* }}`; `runpod_smoke.py --r2` sets them), and/or written under `RESULT_DIR`
+(a mounted network volume). Files are inlined as base64 while the reply stays under
+`MAX_RESULT_MB` (default 9; RunPod allows 10 MB for `/run`, 20 MB for `/runsync`); a larger file
+comes back by `url` (valid `RESULT_URL_TTL_S`, 7 days) with a warning. With no bucket and no
+`RESULT_DIR` such a file is reported in `warnings` as lost. Some but not all `BUCKET_*` set is a
+configuration error. Previews (`type: temp`) are not returned; a file reported twice is returned once.
 A workflow with any invalid node fails the job (ComfyUI would otherwise run the valid branches
 and drop the rest). On a timeout or failure the prompt is removed from ComfyUI's queue and
 interrupted, so a warm worker's next job does not wait behind it. Settings must be positive
