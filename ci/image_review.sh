@@ -45,6 +45,9 @@ LC_ALL=C comm -13 "$out/base-files.txt" "$out/image-files.txt" >"$out/added-file
   echo "## /kdp-models.json"
   docker run --rm --network none --entrypoint cat "$image" /kdp-models.json
   echo
+  echo "## /kdp-tools.json (pinned tool archives, size + sha256 verified at build)"
+  docker run --rm --network none --entrypoint sh "$image" -c 'cat /kdp-tools.json 2>/dev/null || echo none'
+  echo
   echo "## /kdp-split/*.json (files baked as several layers, joined at worker start)"
   docker run --rm --network none --entrypoint sh "$image" -c 'cat /kdp-split/*.json 2>/dev/null || echo none'
 } >"$manifest"
@@ -53,13 +56,18 @@ docker history --no-trunc "$image" >"$scan/history.txt"
 docker image inspect "$image" >"$scan/inspect.json"
 # Copy every added file into scan/, except weights: for those only their JSON header (the only
 # free-text part of a .safetensors file) is extracted. A split weight's part 0 starts with that
-# header; its other parts are raw tensor bytes and are only listed.
+# header; its other parts are raw tensor bytes and are only listed. Files unpacked from a pinned
+# tool archive (/kdp-tools.json: upstream bytes, sha256-checked at build) are only listed too.
 awk '{print $3}' "$out/added-files.txt" >"$scan/paths.txt"
 docker run --rm --network none -v "$scan:/scan" --entrypoint python3 "$image" -c '
 import json, shutil, struct
 from pathlib import Path
+tools = Path("/kdp-tools.json")
+tool_dirs = [t["path"].rstrip("/") + "/" for t in json.loads(tools.read_text())] if tools.exists() else []
 for line in Path("/scan/paths.txt").read_text().split():
     src, dst = Path(line), Path("/scan/files" + line)
+    if any(line.startswith(d) for d in tool_dirs):
+        continue
     dst.parent.mkdir(parents=True, exist_ok=True)
     if src.suffix.startswith(".kdp-part") and src.suffix != ".kdp-part0":
         continue

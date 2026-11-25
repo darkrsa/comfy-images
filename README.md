@@ -12,6 +12,7 @@ text-to-image, ControlNet, image-to-video, lipsync (talking video from a portrai
 | `ghcr.io/darkrsa/kdp-comfy-zimage-turbo-cn` | Z-Image Turbo + Z-Image-Turbo Fun ControlNet Union (ModelPatchLoader) |
 | `ghcr.io/darkrsa/kdp-comfy-wan22-5b` | Wan2.2 TI2V-5B fp16 + umT5-XXL fp8 + Wan2.2 VAE; returns video files (all-outputs handler) |
 | `ghcr.io/darkrsa/kdp-comfy-trellis2` | TRELLIS.2 (int8) + shape/texture VAEs + DINOv3 ViT-L encoder + BiRefNet; returns GLB (see below) |
+| `ghcr.io/darkrsa/kdp-comfy-trellis2-pod` | Same weights and handler as `trellis2`, plus headless Blender 4.5.17 LTS (`blender -b`): a RunPod **pod** image (see below) |
 | `ghcr.io/darkrsa/kdp-comfy-wan22-s2v` | Wan2.2-S2V 14B fp8 (2 layers, see below) + wav2vec2-large English + umT5-XXL fp8 + Wan2.1 VAE + LightX2V 4-step LoRA; returns mp4 with the speech |
 | `ghcr.io/darkrsa/kdp-comfy-wan21-infinitetalk` | Wan2.1 I2V 480p 14B fp8 (2 layers) + InfiniteTalk patch + Chinese wav2vec2 base + umT5-XXL fp8 + Wan2.1 VAE + LightX2V distill LoRA; returns mp4 |
 
@@ -35,6 +36,7 @@ Tags: `<yyyymmdd>-<sha>` (immutable) and `latest`. Weight files are placed where
 /comfyui/models/clip_vision/       dino_v3_vit_l.safetensors
 /comfyui/models/background_removal/ birefnet.safetensors
 /licenses/             licence texts a bundled weight requires (trellis2: DINOv3)
+/opt/blender/          trellis2-pod: Blender 4.5.17 LTS, `blender` on PATH; /kdp-tools.json records it
 ```
 
 Each image is the upstream worker image plus weight files, each downloaded from Hugging Face at
@@ -42,6 +44,21 @@ build time, checked against a pinned sha256, and refused unless its model card r
 `models.yaml` declares for it, which must be in `approved_licences` there (anything other than
 Apache-2.0 is approved by the owner explicitly). The only code an image adds is the output handler
 of families that set `handler: outputs` (below). Each image was scanned (gitleaks) before publishing.
+
+## trellis2-pod: a work pod with ComfyUI and Blender
+
+`trellis2-pod` is for an on-demand **pod**, not a serverless endpoint: TRELLIS.2 runs in ComfyUI
+and the GLB goes straight into headless Blender (retopology, projection, renders) on the same GPU,
+with nothing to install by hand, so the pod can be deleted after a session and recreated later.
+
+- Blender is the unmodified official archive (`models.yaml` `tools:`), downloaded at build time by
+  [`docker/fetch/tool.py`](docker/fetch/tool.py) and refused unless its byte size and sha256 match
+  the pinned values (from blender.org's `.sha256` file). The build ends with `blender -b --version`.
+- Start the pod with env `SERVE_API_LOCALLY=true` and port `8188/http`: ComfyUI then listens on
+  0.0.0.0 and is reachable at `https://<pod-id>-8188.proxy.runpod.net` (UI and API). Container
+  disk 40 GB.
+- Keep work files (GLB, `.blend`, renders) in R2, not on a network volume: a volume ties the pod
+  to one datacenter, and GPU stock moves between them.
 
 ## trellis2 and wan22-5b: all outputs (GLB, video)
 
@@ -152,6 +169,7 @@ The images bundle third-party software and weights under their own licenses:
 | InfiniteTalk (model patch) | Apache-2.0 | https://huggingface.co/MeiGen-AI/InfiniteTalk |
 | wav2vec2-large-xlsr-53-english (audio encoder for S2V) | Apache-2.0 | https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-english |
 | chinese-wav2vec2-base (audio encoder for InfiniteTalk) | MIT | https://huggingface.co/TencentGameMate/chinese-wav2vec2-base |
+| Blender 4.5.17 LTS (trellis2-pod only; official linux-x64 archive, its licence texts ship inside `/opt/blender`) | GPL-2.0-or-later | https://www.blender.org/about/license/, source: https://download.blender.org/source/ |
 | LightX2V LoRAs (Wan2.2 Lightning 4-step; Wan2.1 I2V 480p step/CFG distill) | Apache-2.0 | https://huggingface.co/lightx2v/Wan2.2-Lightning, https://huggingface.co/lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v |
 
 Weight files are redistributed unmodified (ComfyUI-packaged single files from
