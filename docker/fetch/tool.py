@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Install one pinned tool archive (e.g. Blender) into a kdp-comfy image at build time, verified.
 
-    python3 tool.py <name> <version> <url> <sha256> <size> <dest_dir> <binary>
+    python3 tool.py <name> <version> <urls> <sha256> <size> <dest_dir> <binary>
 
-Standard library only (runpod/worker-comfyui has python3 but no curl):
-  1. download <url> to a temp file (resumed + retried), check the exact byte size and sha256
-     pinned in models.yaml `tools:`; any mismatch fails the build;
+<urls> is a comma-separated list of https URLs of the same archive (models.yaml `url`, then its
+`mirrors`), tried in order. Standard library only (runpod/worker-comfyui has python3 but no curl):
+  1. download the archive to a temp file (resumed + retried; an HTTP 4xx refusal moves on to the
+     next URL at once), check the exact byte size and sha256 pinned in models.yaml `tools:`; any
+     mismatch fails the build, so a mirror can serve nothing but the pinned bytes;
   2. unpack the .tar.xz into <dest_dir> (its single top-level folder stripped), link
      <dest_dir>/<binary> as /usr/local/bin/<binary>, delete the archive;
   3. record the tool in /kdp-tools.json and print `verified-tool <name> <version> <size> <sha256>`.
@@ -20,6 +22,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -32,24 +35,32 @@ class ToolError(RuntimeError):
     pass
 
 
-def download(url: str, dst: Path, size: int, tries: int = 5) -> None:
-    for attempt in range(1, tries + 1):
-        have = dst.stat().st_size if dst.exists() else 0
-        if have == size:
-            return
-        req = urllib.request.Request(url, headers={**UA, **({"Range": f"bytes={have}-"} if have else {})})
-        try:
-            with urllib.request.urlopen(req, timeout=120) as r, open(dst, "ab" if have else "wb") as fh:
-                if have and r.status != 206:   # server ignored the range: start over
-                    fh.truncate(0)
-                while chunk := r.read(CHUNK):
-                    fh.write(chunk)
-        except OSError as e:
-            print(f"tool: {url}: attempt {attempt}: {e}", file=sys.stderr, flush=True)
-            time.sleep(min(30, 2 ** attempt))
+def download(urls: list[str], dst: Path, size: int, tries: int = 5) -> str:
+    """Fetch the archive into dst from the first URL that serves it; return that URL."""
+    for url in urls:
+        for attempt in range(1, tries + 1):
+            have = dst.stat().st_size if dst.exists() else 0
+            if have == size:
+                return url
+            req = urllib.request.Request(url, headers={**UA, **({"Range": f"bytes={have}-"} if have else {})})
+            try:
+                with urllib.request.urlopen(req, timeout=120) as r, open(dst, "ab" if have else "wb") as fh:
+                    if have and r.status != 206:   # server ignored the range: start over
+                        fh.truncate(0)
+                    while chunk := r.read(CHUNK):
+                        fh.write(chunk)
+            except urllib.error.HTTPError as e:
+                print(f"tool: {url}: attempt {attempt}: {e}", file=sys.stderr, flush=True)
+                if 400 <= e.code < 500:   # refused (e.g. 403 to CI runners): next URL
+                    break
+                time.sleep(min(30, 2 ** attempt))
+            except OSError as e:
+                print(f"tool: {url}: attempt {attempt}: {e}", file=sys.stderr, flush=True)
+                time.sleep(min(30, 2 ** attempt))
+        if (dst.stat().st_size if dst.exists() else 0) == size:
+            return url
     got = dst.stat().st_size if dst.exists() else 0
-    if got != size:
-        raise ToolError(f"{url}: got {got} bytes, want {size}")
+    raise ToolError(f"{', '.join(urls)}: got {got} bytes, want {size}")
 
 
 def sha256_of(path: Path) -> str:
@@ -76,12 +87,14 @@ def unpack(archive: Path, dest: Path) -> None:
             tf.extractall(dest, members=keep)
 
 
-def install(name: str, version: str, url: str, sha256: str, size: int, dest: Path, binary: str) -> dict[str, object]:
-    if not url.startswith("https://"):
-        raise ToolError(f"{name}: https URLs only, got {url}")
+def install(name: str, version: str, urls: str, sha256: str, size: int, dest: Path, binary: str) -> dict[str, object]:
+    candidates = [u for u in urls.split(",") if u]
+    bad = [u for u in candidates if not u.startswith("https://")]
+    if bad or not candidates:
+        raise ToolError(f"{name}: https URLs only, got {bad or urls!r}")
     with tempfile.TemporaryDirectory() as tmp:
-        archive = Path(tmp) / Path(url).name
-        download(url, archive, size)
+        archive = Path(tmp) / Path(candidates[0]).name
+        url = download(candidates, archive, size)
         got = sha256_of(archive)
         if got != sha256:
             raise ToolError(f"{name}: sha256 {got} != pinned {sha256}")
@@ -97,6 +110,7 @@ def install(name: str, version: str, url: str, sha256: str, size: int, dest: Pat
     tools = json.loads(MANIFEST.read_text()) if MANIFEST.exists() else []
     MANIFEST.write_text(json.dumps([t for t in tools if t["name"] != name] + [entry], indent=1) + "\n")
     print(f"verified-tool {name} {version} {size} {sha256}", flush=True)
+    print(f"tool: {name} downloaded from {url}", flush=True)
     return entry
 
 

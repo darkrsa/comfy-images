@@ -31,6 +31,11 @@ tools:
   blender:
     version: 4.5.17   # LTS
     url: https://download.blender.org/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz
+    # download.blender.org answered 403 to a GitHub runner (build run 45618509765), so tool.py
+    # falls back to these public Blender mirrors in order. The sha256 below pins the bytes.
+    mirrors:
+      - https://mirrors.ocf.berkeley.edu/blender/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz
+      - https://ftp.halifax.rwth-aachen.de/blender/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz
     size: 377826816
     sha256: b7d09d1aa7c346fed1e56390e815dbf1589d47324734fbad9e2007fe75ca0b8d  # blender-4.5.17.sha256, checked 2026-11-25
     dest: /opt/blender

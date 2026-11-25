@@ -52,7 +52,7 @@ ASSEMBLE = "assemble.py"   # docker/extras file that joins split weights at work
 # models.yaml licence id -> SPDX expression for the image label.
 SPDX = {"apache-2.0": "Apache-2.0", "mit": "MIT", "dinov3-license": "LicenseRef-DINOv3",
         "gpl-2.0-or-later": "GPL-2.0-or-later"}
-TOOL_KEYS = {"version", "url", "size", "sha256", "dest", "binary", "licence", "licence_url", "apt"}
+TOOL_KEYS = {"version", "url", "mirrors", "size", "sha256", "dest", "binary", "licence", "licence_url", "apt"}
 
 
 class ModelsError(ValueError):
@@ -74,6 +74,10 @@ def validate(models: dict) -> None:
             raise ModelsError(f"tool {name}: keys {sorted(t)} != {sorted(TOOL_KEYS)}")
         if not str(t["url"]).startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", str(t["sha256"])):
             raise ModelsError(f"tool {name}: needs an https url and a pinned sha256")
+        base = str(t["url"]).rsplit("/", 1)[-1]
+        if not isinstance(t["mirrors"], list) or not all(
+                re.fullmatch(r"https://[^\s,]+", str(m)) and str(m).rsplit("/", 1)[-1] == base for m in t["mirrors"]):
+            raise ModelsError(f"tool {name}: mirrors must be https URLs of the same file ({base})")
         if not isinstance(t["size"], int) or t["size"] <= 0:
             raise ModelsError(f"tool {name}: size must be the archive's exact byte count")
         if t["licence"] not in approved or t["licence"] not in SPDX:
@@ -194,7 +198,7 @@ def tool_layers(family: str, models: dict) -> str:
             f"    && apt-get install -y --no-install-recommends {' '.join(t['apt'])} \\\n"
             "    && rm -rf /var/lib/apt/lists/* \\\n"
             f"    && python3 /tmp/kdp-tool.py {t['name']} {t['version']} \\\n"
-            f"      {t['url']} \\\n"
+            f"      {','.join([t['url'], *t['mirrors']])} \\\n"
             f"      {t['sha256']} {t['size']} {t['dest']} {t['binary']} \\\n"
             f"    && {t['binary']} -b --factory-startup --version\n")
     return ("\n" + "\n".join(out)) if out else ""
