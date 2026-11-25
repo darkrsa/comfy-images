@@ -1,0 +1,5 @@
+# repo	commit (main, 2026-11-25)	include pattern (empty = whole repo). All apache-2.0 on the card.
+ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16	fe9c6303ddfdefcae7f06ec7fc7c244bada46cc3	
+ai-toolkit/umt5_xxl_encoder	0dc787b18485f27e1eb5a678127868becc2401ef	
+ai-toolkit/wan2.1-vae	1ec3f48e1ac74941bb0b9b61cb107de654c7af4b	
+ostris/accuracy_recovery_adapters	daf7bdfa5878178b1bde518336ad672dd914bdae	wan22_14b_t2i_torchao_uint4.safetensors
