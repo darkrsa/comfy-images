@@ -1,0 +1,70 @@
+# ai-toolkit job: Wan2.2 T2V-A14B character LoRA (both experts), images only, 24 GB GPU.
+# Based on ai-toolkit's config/examples/train_lora_wan22_14b_24gb.yaml (v0.13.43). pod_train.sh fills ${...}.
+job: extension
+config:
+  name: "${RUN_NAME}"
+  process:
+    - type: "sd_trainer"
+      training_folder: "/workspace/out"
+      device: cuda:0
+      network:
+        type: "lora"
+        linear: ${RANK}
+        linear_alpha: ${RANK}
+      save:
+        dtype: float16
+        save_every: 500
+        max_step_saves_to_keep: 4
+      datasets:
+        - folder_path: "/workspace/data/images"
+          caption_ext: "txt"
+          caption_dropout_rate: 0.05
+          num_frames: 1
+          resolution: [512, 768]
+      train:
+        batch_size: 1
+        steps: ${STEPS}
+        gradient_accumulation: 1
+        train_unet: true
+        train_text_encoder: false
+        gradient_checkpointing: true
+        noise_scheduler: "flowmatch"
+        timestep_type: "linear"
+        optimizer: "adamw8bit"
+        lr: ${LR}
+        optimizer_params:
+          weight_decay: 1e-4
+        dtype: bf16
+        switch_boundary_every: 10
+        cache_text_embeddings: true
+        skip_first_sample: true
+      model:
+        name_or_path: "ai-toolkit/Wan2.2-T2V-A14B-Diffusers-bf16"
+        arch: "wan22_14b"
+        quantize: true
+        qtype: "uint4|ostris/accuracy_recovery_adapters/wan22_14b_t2i_torchao_uint4.safetensors"
+        quantize_te: true
+        qtype_te: "qfloat8"
+        low_vram: true
+        model_kwargs:
+          train_high_noise: true
+          train_low_noise: true
+      sample:
+        sampler: "flowmatch"
+        sample_every: ${STEPS}
+        width: 832
+        height: 480
+        num_frames: 41
+        fps: 16
+        prompts:
+          - "zaffy, full body, front view, wearing glasses, waving with one hand and smiling, standing in a cozy living room, soft daylight"
+          - "zaffy, close-up portrait, three-quarter view, wearing glasses, laughing, autumn park in the background"
+          - "zaffy, medium shot, wearing glasses and a brown leather satchel, playing a golden trumpet, eyes closed, small stage with warm spotlights"
+        neg: ""
+        seed: 42
+        walk_seed: true
+        guidance_scale: 3.5
+        sample_steps: 25
+meta:
+  name: "[name]"
+  version: "1.0"
