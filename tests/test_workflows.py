@@ -12,11 +12,14 @@ MODELS = load_models()
 # workflow file -> family whose image it runs on
 WORKFLOWS = {"trellis2_image_to_glb.json": "trellis2",
              "wan22_s2v_talking.json": "wan22-s2v",
-             "wan21_infinitetalk_talking.json": "wan21-infinitetalk"}
+             "wan21_infinitetalk_talking.json": "wan21-infinitetalk",
+             "qwen_image_edit_2511_scene.json": "qwen-image-edit",
+             "wan22_5b_i2v.json": "wan22-5b"}
 LOADER_INPUTS = {"unet_name", "vae_name", "clip_name", "bg_removal_name", "model_name", "ckpt_name",
                  "lora_name", "audio_encoder_name"}
 # The saver each family's API workflow must end in (the all-outputs handler returns its file).
-SAVERS = {"trellis2": "SaveGLB", "wan22-s2v": "SaveVideo", "wan21-infinitetalk": "SaveVideo"}
+SAVERS = {"trellis2": "SaveGLB", "wan22-s2v": "SaveVideo", "wan21-infinitetalk": "SaveVideo",
+          "qwen-image-edit": "SaveImage", "wan22-5b": "SaveVideo"}
 
 
 @pytest.mark.parametrize(("name", "family"), WORKFLOWS.items())

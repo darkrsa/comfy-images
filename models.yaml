@@ -306,6 +306,48 @@ files:
     licence_repo: lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v
     licence_url: https://huggingface.co/lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v
 
+  # --- Qwen-Image-Edit 2511: edit an image from 1-3 reference images + an instruction, ComfyUI native
+  # (TextEncodeQwenImageEditPlus), files as in workflow_templates image_qwen_image_edit_2511.json.
+  # sha256 + size from HF's LFS listing, licences from the upstream cards, checked 2026-11-25.
+  - name: qwen_image_edit_2511_fp8mixed
+    url: https://huggingface.co/Comfy-Org/Qwen-Image-Edit/resolve/main/split_files/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors
+    path: models/diffusion_models/qwen_image_edit_2511_fp8mixed.safetensors
+    size_gb: 20.53
+    sha256: c9fdc158e46d3b61ef75f21ae866ca2fe808bf4a53643120d1c1e87c19280a4e  # HF LFS, 20533762817 bytes
+    parts: 3
+    licence: apache-2.0
+    licence_repo: Qwen/Qwen-Image-Edit-2511
+    licence_url: https://huggingface.co/Qwen/Qwen-Image-Edit-2511
+
+  # Qwen2.5-VL 7B text/vision encoder (CLIPLoader type `qwen_image`).
+  - name: qwen_2_5_vl_7b_fp8
+    url: https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
+    path: models/text_encoders/qwen_2.5_vl_7b_fp8_scaled.safetensors
+    size_gb: 9.38
+    sha256: cb5636d852a0ea6a9075ab1bef496c0db7aef13c02350571e388aea959c5c0b4  # HF LFS, 9384670680 bytes
+    licence: apache-2.0
+    licence_repo: Qwen/Qwen2.5-VL-7B-Instruct
+    licence_url: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct
+
+  - name: qwen_image_vae
+    url: https://huggingface.co/Comfy-Org/Qwen-Image/resolve/main/split_files/vae/qwen_image_vae.safetensors
+    path: models/vae/qwen_image_vae.safetensors
+    size_gb: 0.25
+    sha256: a70580f0213e67967ee9c95f05bb400e8fb08307e017a924bf3441223e023d1f  # HF LFS, 253806246 bytes
+    licence: apache-2.0
+    licence_repo: Qwen/Qwen-Image-Edit-2511
+    licence_url: https://huggingface.co/Qwen/Qwen-Image-Edit-2511
+
+  # 4-step Lightning LoRA (cfg 1, 4 steps instead of 40), as in the 2511 template.
+  - name: qwen_image_edit_2511_lightning_4steps
+    url: https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning/resolve/main/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+    path: models/loras/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
+    size_gb: 0.85
+    sha256: 22226e8d05d354bb356627d428809f5afd7819399b077238a2b70a82883a904f  # HF LFS, 849608296 bytes
+    licence: apache-2.0
+    licence_repo: lightx2v/Qwen-Image-Edit-2511-Lightning
+    licence_url: https://huggingface.co/lightx2v/Qwen-Image-Edit-2511-Lightning
+
 families:
   zimage-full:
     files: [z_image_bf16, qwen_3_4b, z_image_vae]
@@ -345,6 +387,13 @@ families:
     handler: outputs
     files: [wan2_1_i2v_480p_14b_fp8, wan2_1_infinitetalk_multi_fp16, wav2vec2_chinese_base_fp16,
             umt5_xxl_fp8, wan_2_1_vae, lightx2v_i2v_480p_rank64]
+
+  # Reference image(s) + instruction -> edited image (character in a new pose/scene). The 20.5 GB
+  # model is baked as 3 layers and joined at start (container disk from images.container_disk_gb).
+  qwen-image-edit:
+    handler: outputs
+    files: [qwen_image_edit_2511_fp8mixed, qwen_2_5_vl_7b_fp8, qwen_image_vae,
+            qwen_image_edit_2511_lightning_4steps]
 
 # Bake-off profiles → files they need (by name) and sampler settings. workflows.py builds them.
 profiles:

@@ -9,7 +9,7 @@ on:
       family:
         description: Image family to build
         type: choice
-        options: [all, zimage-full, zimage-turbo, flux2klein, zimage-turbo-cn, wan22-5b, trellis2, trellis2-pod, wan22-s2v, wan21-infinitetalk]
+        options: [all, zimage-full, zimage-turbo, flux2klein, zimage-turbo-cn, wan22-5b, trellis2, trellis2-pod, wan22-s2v, wan21-infinitetalk, qwen-image-edit]
         default: all
   push:
     branches: [main]

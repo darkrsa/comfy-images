@@ -15,6 +15,7 @@ text-to-image, ControlNet, image-to-video, lipsync (talking video from a portrai
 | `ghcr.io/darkrsa/kdp-comfy-trellis2-pod` | Same weights and handler as `trellis2`, plus headless Blender 4.5.17 LTS (`blender -b`): a RunPod **pod** image (see below) |
 | `ghcr.io/darkrsa/kdp-comfy-wan22-s2v` | Wan2.2-S2V 14B fp8 (2 layers, see below) + wav2vec2-large English + umT5-XXL fp8 + Wan2.1 VAE + LightX2V 4-step LoRA; returns mp4 with the speech |
 | `ghcr.io/darkrsa/kdp-comfy-wan21-infinitetalk` | Wan2.1 I2V 480p 14B fp8 (2 layers) + InfiniteTalk patch + Chinese wav2vec2 base + umT5-XXL fp8 + Wan2.1 VAE + LightX2V distill LoRA; returns mp4 |
+| `ghcr.io/darkrsa/kdp-comfy-qwen-image-edit` | Qwen-Image-Edit 2511 fp8mixed (3 layers) + Qwen2.5-VL 7B fp8 encoder + Qwen-Image VAE + Lightning 4-step LoRA; edits an image from 1-3 references + an instruction (`workflows/qwen_image_edit_2511_scene.json`), returns PNG |
 
 Tags: `<yyyymmdd>-<sha>` (immutable) and `latest`. Weight files are placed where ComfyUI expects them:
 
@@ -32,7 +33,10 @@ Tags: `<yyyymmdd>-<sha>` (immutable) and `latest`. Weight files are placed where
 /comfyui/models/audio_encoders/    wav2vec2_large_english_fp16 | wav2vec2-chinese-base_fp16  .safetensors
 /comfyui/models/loras/             wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise |
                                    lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16  .safetensors
-/comfyui/models/vae/               wan_2.1_vae.safetensors
+/comfyui/models/vae/               wan_2.1_vae.safetensors | qwen_image_vae.safetensors
+/comfyui/models/diffusion_models/  qwen_image_edit_2511_fp8mixed.safetensors (qwen-image-edit)
+/comfyui/models/text_encoders/     qwen_2.5_vl_7b_fp8_scaled.safetensors
+/comfyui/models/loras/             Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors
 /comfyui/models/clip_vision/       dino_v3_vit_l.safetensors
 /comfyui/models/background_removal/ birefnet.safetensors
 /licenses/             licence texts a bundled weight requires (trellis2: DINOv3)
