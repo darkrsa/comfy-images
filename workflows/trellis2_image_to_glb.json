@@ -37,7 +37,7 @@
    ],
    "width": 1024,
    "height": 1024,
-   "pad_factor": 1.0,
+   "pad_factor": 1.1,
    "grow_mask": 0,
    "background": "#000000"
   }
@@ -363,7 +363,7 @@
    "band": 1.0,
    "project_back": 0.0,
    "fix_poles": false,
-   "smooth_iters": 0,
+   "smooth_iters": 20,
    "drop_small_components": 0.01,
    "precluster_max_verts": 20000000
   }
@@ -375,7 +375,7 @@
     "26",
     0
    ],
-   "target_face_count": 80000,
+   "target_face_count": 700000,
    "placement_mode": "midpoint"
   }
  },
@@ -397,7 +397,7 @@
     0
    ],
    "segmenter": "pec",
-   "resolution": 1024,
+   "resolution": 2048,
    "padding": 1,
    "weld_distance": 0.0002
   }
@@ -413,7 +413,7 @@
     "25",
     0
    ],
-   "texture_size": 1024,
+   "texture_size": 2048,
    "reference_mesh": [
     "24",
     0
@@ -431,7 +431,7 @@
     "26",
     0
    ],
-   "resolution": 1024,
+   "resolution": 2048,
    "cage_distance": 0.05,
    "ignore_backfaces": true
   }
