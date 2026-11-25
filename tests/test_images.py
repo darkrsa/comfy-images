@@ -19,7 +19,7 @@ DIFFUSION_DIRS = ("models/unet/", "models/diffusion_models/")
 
 
 def test_families_have_one_diffusion_model_each():
-    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2", "wan22-s2v", "wan21-infinitetalk"]
+    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk"]
     by_name = {f["name"]: f for f in MODELS["files"]}
     for fam, spec in MODELS["families"].items():
         models = [n for n in spec["files"] if by_name[n]["path"].startswith(DIFFUSION_DIRS)]
@@ -95,6 +95,41 @@ def test_licence_label_and_extras_per_family():
     assert "COPY --from=extras handler.py /handler.py" in I.extras_layers("trellis2", MODELS)
 
 
+def test_tool_layers_pin_the_archive_and_smoke_test_it():
+    text = (I.DOCKER / "trellis2-pod" / "Dockerfile").read_text()
+    t = MODELS["tools"]["blender"]
+    run = re.search(r"^RUN --mount=type=bind,from=fetch,source=tool\.py,target=/tmp/kdp-tool\.py (.*?)(?=^\s*$|^#|\Z)",
+                    text, re.S | re.M).group(1).replace("\\\n", " ").split()
+    i = run.index("/tmp/kdp-tool.py")
+    assert run[i + 1:i + 8] == ["blender", t["version"], t["url"], t["sha256"], str(t["size"]), t["dest"], t["binary"]]
+    assert run[run.index("install"):run.index("install") + 3] == ["install", "-y", "--no-install-recommends"]
+    assert run[-4:] == ["blender", "-b", "--factory-startup", "--version"]
+    assert t["url"].startswith("https://download.blender.org/release/")
+    assert re.fullmatch(r"[0-9a-f]{64}", t["sha256"])
+    assert I.licence_label("trellis2-pod", MODELS) == "GPL-2.0-or-later AND LicenseRef-DINOv3 AND MIT"
+    assert "blender 4.5.17" in text.split("LABEL", 1)[1].split("\n\n", 1)[0]
+    for family, spec in MODELS["families"].items():   # only the pod image carries a tool
+        assert ("/tmp/kdp-tool.py" in (I.DOCKER / family / "Dockerfile").read_text()) == bool(spec.get("tools"))
+    assert MODELS["families"]["trellis2-pod"]["files"] == MODELS["families"]["trellis2"]["files"]
+
+
+@pytest.mark.parametrize(("change", "match"), [
+    (lambda m: m["families"]["trellis2-pod"]["tools"].append("houdini"), "no tool named 'houdini'"),
+    (lambda m: m["tools"]["blender"].update(sha256="-"), "pinned sha256"),
+    (lambda m: m["tools"]["blender"].update(url="http://download.blender.org/x.tar.xz"), "https url"),
+    (lambda m: m["tools"]["blender"].update(size="big"), "exact byte count"),
+    (lambda m: m["tools"]["blender"].update(licence="proprietary"), "not approved"),
+    (lambda m: m["approved_licences"].pop("gpl-2.0-or-later"), "not approved"),
+    (lambda m: m["tools"]["blender"].update(apt=["libgl1; rm -rf /"]), "bad apt package"),
+    (lambda m: m["tools"]["blender"].pop("dest"), "keys"),
+])
+def test_bad_tool_is_refused(change, match):
+    models = copy.deepcopy(MODELS)
+    change(models)
+    with pytest.raises(I.ModelsError, match=match):
+        I.validate(models)
+
+
 def test_committed_dockerfiles_are_rendered_from_models_yaml():
     assert I.stale() == []
 
@@ -103,6 +138,7 @@ def test_committed_dockerfiles_are_rendered_from_models_yaml():
 def test_every_family_file_is_fetched_with_sha256_check(family):
     text = (I.DOCKER / family / "Dockerfile").read_text()
     runs = re.findall(r"^RUN (.*?)(?=^\s*$|^#|\Z)", text, re.S | re.M)
+    runs = [r for r in runs if "/tmp/kdp-tool.py" not in r]   # tool layers: test_tool_layers_*
     files = I.family_files(family, MODELS)
     assert len(runs) == len(files)   # one layer per weight file
     for f, run in zip(files, runs):
@@ -151,7 +187,9 @@ def test_image_adds_nothing_but_weights_licences_and_handler(family):
     assert not re.search(r"token|secret|password|HF_TOKEN", text, re.I)
     assert (d / ".dockerignore").read_text().splitlines()[-2:] == ["*", "!Dockerfile"]
     assert sorted(p.name for p in d.iterdir()) == [".dockerignore", "Dockerfile"]
-    assert sorted(p.name for p in (I.DOCKER / "fetch").iterdir() if p.name != "__pycache__") == ["fetch.py"]
+    assert sorted(p.name for p in (I.DOCKER / "fetch").iterdir() if p.name != "__pycache__") == ["fetch.py", "tool.py"]
+    tool_runs = text.count("python3 /tmp/kdp-tool.py ")
+    assert tool_runs == len(MODELS["families"][family].get("tools", []))
     assert sorted(p.name for p in I.EXTRAS.iterdir() if p.name != "__pycache__") == [
         "assemble.py", "handler.py", "licenses"]
 
@@ -224,7 +262,7 @@ def _plan_after(repo, path):
 @pytest.mark.parametrize(("path", "families"), [
     ("docker/zimage-full/Dockerfile", ["zimage-full"]),          # not the last family: used to exit 1
     ("docker/trellis2/Dockerfile", ["trellis2"]),
-    ("docker/extras/handler.py", ["wan22-5b", "trellis2", "wan22-s2v", "wan21-infinitetalk"]),      # only families that copy extras
+    ("docker/extras/handler.py", ["wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk"]),      # only families that copy extras
     ("docker/fetch/fetch.py", FAMILIES),
     ("README.md", []),
 ])

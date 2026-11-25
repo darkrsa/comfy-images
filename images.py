@@ -19,6 +19,7 @@ docker/extras/assemble.py (the image's CMD) joins them before /start.sh starts C
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -49,11 +50,13 @@ DOCKERIGNORE = "# Build context = this directory; only the Dockerfile is sent.\n
 HANDLERS = {"outputs": "handler.py"}
 ASSEMBLE = "assemble.py"   # docker/extras file that joins split weights at worker start   # family `handler:` value -> file in docker/extras
 # models.yaml licence id -> SPDX expression for the image label.
-SPDX = {"apache-2.0": "Apache-2.0", "mit": "MIT", "dinov3-license": "LicenseRef-DINOv3"}
+SPDX = {"apache-2.0": "Apache-2.0", "mit": "MIT", "dinov3-license": "LicenseRef-DINOv3",
+        "gpl-2.0-or-later": "GPL-2.0-or-later"}
+TOOL_KEYS = {"version", "url", "size", "sha256", "dest", "binary", "licence", "licence_url", "apt"}
 
 
 class ModelsError(ValueError):
-    """models.yaml is inconsistent: unknown or unapproved licence, missing file, bad handler."""
+    """models.yaml is inconsistent: unknown or unapproved licence, missing file or tool, bad handler."""
 
 
 def image_name(family: str) -> str:
@@ -65,7 +68,22 @@ def validate(models: dict) -> None:
     SPDX label, ship their licence texts, and name a known handler."""
     approved = models.get("approved_licences") or {}
     by_name = {f["name"]: f for f in models["files"]}
+    tools = models.get("tools") or {}
+    for name, t in tools.items():
+        if set(t) != TOOL_KEYS:
+            raise ModelsError(f"tool {name}: keys {sorted(t)} != {sorted(TOOL_KEYS)}")
+        if not str(t["url"]).startswith("https://") or not re.fullmatch(r"[0-9a-f]{64}", str(t["sha256"])):
+            raise ModelsError(f"tool {name}: needs an https url and a pinned sha256")
+        if not isinstance(t["size"], int) or t["size"] <= 0:
+            raise ModelsError(f"tool {name}: size must be the archive's exact byte count")
+        if t["licence"] not in approved or t["licence"] not in SPDX:
+            raise ModelsError(f"tool {name}: licence {t['licence']!r} is not approved / has no SPDX label")
+        if not all(re.fullmatch(r"[a-z0-9][a-z0-9.+-]*", p) for p in t["apt"]):
+            raise ModelsError(f"tool {name}: bad apt package name in {t['apt']}")
     for family, spec in models["families"].items():
+        for tool in spec.get("tools", []):
+            if tool not in tools:
+                raise ModelsError(f"{family}: no tool named {tool!r} in models.yaml")
         handler = spec.get("handler")
         if handler is not None and handler not in HANDLERS:
             raise ModelsError(f"{family}: unknown handler {handler!r}; have {sorted(HANDLERS)}")
@@ -99,9 +117,16 @@ def family_files(family: str, models: dict | None = None) -> list[dict]:
     return [by_name[n] for n in models["families"][family]["files"]]
 
 
+def family_tools(family: str, models: dict) -> list[dict]:
+    """The family's pinned tool archives (models.yaml `tools:`), each with its `name`."""
+    tools = models.get("tools") or {}
+    return [{"name": n, **tools[n]} for n in models["families"][family].get("tools", [])]
+
+
 def licence_label(family: str, models: dict) -> str:
-    """SPDX expression for the image: the weights' licences, plus MIT for our own handler."""
+    """SPDX expression for the image: the weights' and tools' licences, plus MIT for our handler."""
     ids = {f["licence"] for f in family_files(family, models)}
+    ids |= {t["licence"] for t in family_tools(family, models)}
     labels = {SPDX[i] for i in ids}
     if models["families"][family].get("handler"):
         labels.add("MIT")
@@ -157,6 +182,24 @@ def weight_layers(family: str, models: dict) -> str:
     return "\n".join(out)
 
 
+def tool_layers(family: str, models: dict) -> str:
+    """One RUN per tool: its runtime libraries from apt, then the verified archive (tool.py,
+    bind-mounted like fetch.py), unpacked and linked into /usr/local/bin, smoke-tested."""
+    out = []
+    for t in family_tools(family, models):
+        out.append(
+            f"# {t['name']} {t['version']}: {t['licence']} ({t['licence_url']})\n"
+            "RUN --mount=type=bind,from=fetch,source=tool.py,target=/tmp/kdp-tool.py \\\n"
+            "    apt-get update \\\n"
+            f"    && apt-get install -y --no-install-recommends {' '.join(t['apt'])} \\\n"
+            "    && rm -rf /var/lib/apt/lists/* \\\n"
+            f"    && python3 /tmp/kdp-tool.py {t['name']} {t['version']} \\\n"
+            f"      {t['url']} \\\n"
+            f"      {t['sha256']} {t['size']} {t['dest']} {t['binary']} \\\n"
+            f"    && {t['binary']} -b --factory-startup --version\n")
+    return ("\n" + "\n".join(out)) if out else ""
+
+
 def extras_layers(family: str, models: dict) -> str:
     """COPY lines for licence texts, the replacement handler and the split-file joiner (empty for
     a weights-only family)."""
@@ -174,6 +217,10 @@ def extras_layers(family: str, models: dict) -> str:
     return ("\n" + "\n".join(lines) + "\n") if lines else ""
 
 
+def tools_note(family: str, models: dict) -> str:
+    return "".join(f" + {t['name']} {t['version']}" for t in family_tools(family, models))
+
+
 def dockerfile(family: str, models: dict | None = None) -> str:
     models = models or load_models()
     runs = weight_layers(family, models)
@@ -186,11 +233,11 @@ def dockerfile(family: str, models: dict | None = None) -> str:
 {split_stages(family, models)}FROM {BASE_IMAGE}
 
 LABEL org.opencontainers.image.source="{SOURCE}" \\
-      org.opencontainers.image.description="runpod/worker-comfyui 5.10.0-base + {family} weights ({licence_label(family, models)})" \\
+      org.opencontainers.image.description="runpod/worker-comfyui 5.10.0-base + {family} weights{tools_note(family, models)} ({licence_label(family, models)})" \\
       org.opencontainers.image.licenses="{licence_label(family, models)}"
 
 # One RUN (= one layer) per weight file: GHCR caps a layer at 10 GB.
-{runs}{extras_layers(family, models)}"""
+{runs}{tool_layers(family, models)}{extras_layers(family, models)}"""
 
 
 def render(models: dict | None = None) -> list[Path]:

@@ -22,6 +22,23 @@ approved_licences:
   apache-2.0: DECISIONS X2/D3/D5
   mit: Sergey, 2026-11-24 (TRELLIS.2, BiRefNet)
   dinov3-license: Sergey, 2026-11-24 (DINOv3 image encoder of TRELLIS.2; ship the licence text)
+  gpl-2.0-or-later: Sergey, 2026-11-25 (official Blender archive, unmodified, in the trellis2-pod image)
+
+# Pinned tool archives a family adds next to its weights (`tools:` in a family). Fetched and verified
+# at build time by docker/fetch/tool.py (exact size + sha256), unpacked to `dest`, `binary` linked
+# into /usr/local/bin. `apt` lists the Ubuntu runtime libraries the binary needs.
+tools:
+  blender:
+    version: 4.5.17   # LTS
+    url: https://download.blender.org/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz
+    size: 377826816
+    sha256: b7d09d1aa7c346fed1e56390e815dbf1589d47324734fbad9e2007fe75ca0b8d  # blender-4.5.17.sha256, checked 2026-11-25
+    dest: /opt/blender
+    binary: blender
+    licence: gpl-2.0-or-later
+    licence_url: https://www.blender.org/about/license/
+    apt: [libx11-6, libxi6, libxxf86vm1, libxfixes3, libxrender1, libxext6, libxkbcommon0, libsm6,
+          libice6, libgl1, libegl1]
 
 datacenter: EU-RO-1
 volume_headroom: 0.15
@@ -305,6 +322,14 @@ families:
     handler: outputs
     files: [trellis_2_int8_convrot, trellis_2_shape_vae_bf16, trellis_2_texture_vae_bf16,
             dino_v3_vit_l, birefnet]
+  # Work pod (not serverless): the trellis2 weights + all-outputs handler + headless Blender
+  # (`blender -b`), so a pod can be deleted and recreated without manual setup. Start the pod with
+  # SERVE_API_LOCALLY=true to reach ComfyUI on port 8188; keep work files in R2, not on a volume.
+  trellis2-pod:
+    handler: outputs
+    files: [trellis_2_int8_convrot, trellis_2_shape_vae_bf16, trellis_2_texture_vae_bf16,
+            dino_v3_vit_l, birefnet]
+    tools: [blender]
   # Lipsync: portrait + speech audio -> talking video (mp4), all-outputs handler. The 14B model is
   # baked as 2 layers and joined at start: container disk 37 GB (images.container_disk_gb).
   wan22-s2v:
