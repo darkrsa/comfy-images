@@ -223,3 +223,14 @@ def test_split_refuses_nonsense(tmp_path):
         fetch.split(f, 1)
     with pytest.raises(fetch.FetchError):
         fetch.split(f, 3)
+
+
+def test_split_manifest_goes_to_a_new_directory(hf, tmp_path, monkeypatch):
+    # The split build stage writes KDP_MANIFEST=/kdp-split/<name>.json; /kdp-split/ does not exist
+    # in the base image (CI run 45558735044 failed here after download + split).
+    monkeypatch.setattr(fetch, "MANIFEST", tmp_path / "kdp-split" / "m.json")
+    root = tmp_path / "comfyui"
+    assert fetch.main(["--root", str(root), "--parts", "2", "models/unet/m.safetensors",
+                       f"{hf}/resolve/m.safetensors", "-", "good/repo", "apache-2.0"]) == 0
+    entry = json.loads((tmp_path / "kdp-split" / "m.json").read_text())["files"][0]
+    assert len(entry["parts"]) == 2

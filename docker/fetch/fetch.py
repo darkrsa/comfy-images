@@ -155,6 +155,7 @@ def sha256_of(path: Path) -> str:
 def record(entry: dict) -> None:
     files = json.loads(MANIFEST.read_text())["files"] if MANIFEST.exists() else []
     files = [f for f in files if f["path"] != entry["path"]] + [entry]
+    MANIFEST.parent.mkdir(parents=True, exist_ok=True)   # /kdp-split/ for a split file
     tmp = MANIFEST.with_suffix(".tmp")
     tmp.write_text(json.dumps({"files": files}, indent=2) + "\n")
     os.replace(tmp, MANIFEST)
