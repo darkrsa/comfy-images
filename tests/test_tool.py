@@ -34,12 +34,18 @@ class Server(BaseHTTPRequestHandler):
     body = ARCHIVE
     cut_first = False
     ignore_range = False
+    forbid = ""   # path prefix answered with 403 (download.blender.org to CI runners)
     gets: list[str] = []
+    paths: list[str] = []
 
     def log_message(self, *a):
         pass
 
     def do_GET(self):
+        type(self).paths.append(self.path)
+        if self.forbid and self.path.startswith(self.forbid):
+            self.send_error(403)
+            return
         type(self).gets.append(self.headers.get("Range") or "")
         start = 0
         rng = self.headers.get("Range")
@@ -85,8 +91,8 @@ def http_ok(monkeypatch):
     real = tool.install
 
     def install(name, version, url, *a):
-        if url.startswith("http://127.0.0.1"):
-            url = "https://" + url[len("http://"):]
+        if "http://127.0.0.1" in url:
+            url = url.replace("http://127.0.0.1", "https://127.0.0.1")
             monkeypatch.setattr(tool.urllib.request, "urlopen", _rewrite(tool.urllib.request.urlopen))
         return real(name, version, url, *a)
 
@@ -103,6 +109,7 @@ def _rewrite(urlopen):
 @pytest.fixture
 def httpd():
     Server.body, Server.cut_first, Server.ignore_range, Server.gets = ARCHIVE, False, False, []
+    Server.forbid, Server.paths = "", []
     s = ThreadingHTTPServer(("127.0.0.1", 0), Server)
     threading.Thread(target=s.serve_forever, daemon=True).start()
     yield s
@@ -160,6 +167,33 @@ def test_archive_without_single_top_folder_is_refused(httpd, sandbox, http_ok):
     sha = hashlib.sha256(Server.body).hexdigest()
     url = f"http://127.0.0.1:{httpd.server_port}/b.tar.xz"
     assert tool.main(["blender", "1", url, sha, str(len(Server.body)), str(sandbox / "opt"), "blender"]) == 1
+
+
+def test_refused_url_falls_back_to_the_next_mirror_at_once(httpd, sandbox, http_ok, monkeypatch, capsys):
+    sleeps = []
+    monkeypatch.setattr(tool.time, "sleep", sleeps.append)
+    Server.forbid = "/origin/"
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    urls = f"{base}/origin/b.tar.xz,{base}/mirror/b.tar.xz"
+    assert tool.main(["blender", "9.9.9", urls, SHA, str(len(ARCHIVE)), str(sandbox / "opt" / "blender"), "blender"]) == 0
+    assert Server.paths == ["/origin/b.tar.xz", "/mirror/b.tar.xz"] and sleeps == []
+    (entry,) = json.loads((sandbox / "kdp-tools.json").read_text())
+    assert entry["url"] == f"https://127.0.0.1:{httpd.server_port}/mirror/b.tar.xz"
+    assert "downloaded from" in capsys.readouterr().out
+
+
+def test_every_url_refused_fails_the_build(httpd, sandbox, http_ok, capsys):
+    Server.forbid = "/"
+    base = f"http://127.0.0.1:{httpd.server_port}"
+    urls = f"{base}/a/b.tar.xz,{base}/c/b.tar.xz"
+    assert tool.main(["blender", "1", urls, SHA, str(len(ARCHIVE)), str(sandbox / "opt"), "blender"]) == 1
+    assert "got 0 bytes" in capsys.readouterr().err and not (sandbox / "opt").exists()
+
+
+def test_a_plain_http_mirror_is_refused(sandbox, capsys):
+    urls = "https://example.invalid/b.tar.xz,http://mirror.invalid/b.tar.xz"
+    assert tool.main(["blender", "1", urls, SHA, "1", str(sandbox / "opt"), "blender"]) == 1
+    assert "https URLs only" in capsys.readouterr().err
 
 
 def test_reads_no_token():

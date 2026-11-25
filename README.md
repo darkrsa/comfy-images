@@ -53,7 +53,10 @@ with nothing to install by hand, so the pod can be deleted after a session and r
 
 - Blender is the unmodified official archive (`models.yaml` `tools:`), downloaded at build time by
   [`docker/fetch/tool.py`](docker/fetch/tool.py) and refused unless its byte size and sha256 match
-  the pinned values (from blender.org's `.sha256` file). The build ends with `blender -b --version`.
+  the pinned values (from blender.org's `.sha256` file). download.blender.org can answer 403 to
+  GitHub's runners, so `tool.py` takes the URL plus the `mirrors:` list and moves to the next one
+  on any 4xx; the sha256 check makes every mirror serve the same bytes. The build ends with
+  `blender -b --version`.
 - Start the pod with env `SERVE_API_LOCALLY=true` and port `8188/http`: ComfyUI then listens on
   0.0.0.0 and is reachable at `https://<pod-id>-8188.proxy.runpod.net` (UI and API). Container
   disk 40 GB.

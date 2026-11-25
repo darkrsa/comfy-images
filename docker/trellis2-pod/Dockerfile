@@ -50,7 +50,7 @@ RUN --mount=type=bind,from=fetch,source=tool.py,target=/tmp/kdp-tool.py \
     && apt-get install -y --no-install-recommends libx11-6 libxi6 libxxf86vm1 libxfixes3 libxrender1 libxext6 libxkbcommon0 libsm6 libice6 libgl1 libegl1 \
     && rm -rf /var/lib/apt/lists/* \
     && python3 /tmp/kdp-tool.py blender 4.5.17 \
-      https://download.blender.org/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz \
+      https://download.blender.org/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz,https://mirrors.ocf.berkeley.edu/blender/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz,https://ftp.halifax.rwth-aachen.de/blender/release/Blender4.5/blender-4.5.17-linux-x64.tar.xz \
       b7d09d1aa7c346fed1e56390e815dbf1589d47324734fbad9e2007fe75ca0b8d 377826816 /opt/blender blender \
     && blender -b --factory-startup --version
 

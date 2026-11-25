@@ -101,7 +101,9 @@ def test_tool_layers_pin_the_archive_and_smoke_test_it():
     run = re.search(r"^RUN --mount=type=bind,from=fetch,source=tool\.py,target=/tmp/kdp-tool\.py (.*?)(?=^\s*$|^#|\Z)",
                     text, re.S | re.M).group(1).replace("\\\n", " ").split()
     i = run.index("/tmp/kdp-tool.py")
-    assert run[i + 1:i + 8] == ["blender", t["version"], t["url"], t["sha256"], str(t["size"]), t["dest"], t["binary"]]
+    urls = ",".join([t["url"], *t["mirrors"]])
+    assert run[i + 1:i + 8] == ["blender", t["version"], urls, t["sha256"], str(t["size"]), t["dest"], t["binary"]]
+    assert len(t["mirrors"]) >= 1 and all(m.endswith("/blender-4.5.17-linux-x64.tar.xz") for m in t["mirrors"])
     assert run[run.index("install"):run.index("install") + 3] == ["install", "-y", "--no-install-recommends"]
     assert run[-4:] == ["blender", "-b", "--factory-startup", "--version"]
     assert t["url"].startswith("https://download.blender.org/release/")
@@ -122,6 +124,10 @@ def test_tool_layers_pin_the_archive_and_smoke_test_it():
     (lambda m: m["approved_licences"].pop("gpl-2.0-or-later"), "not approved"),
     (lambda m: m["tools"]["blender"].update(apt=["libgl1; rm -rf /"]), "bad apt package"),
     (lambda m: m["tools"]["blender"].pop("dest"), "keys"),
+    (lambda m: m["tools"]["blender"].update(mirrors=["http://mirror.example/blender-4.5.17-linux-x64.tar.xz"]), "mirrors"),
+    (lambda m: m["tools"]["blender"].update(mirrors=["https://mirror.example/other.tar.xz"]), "same file"),
+    (lambda m: m["tools"]["blender"].update(mirrors=["https://a.example/x,https://b.example/blender-4.5.17-linux-x64.tar.xz"]), "mirrors"),
+    (lambda m: m["tools"]["blender"].update(mirrors="https://mirror.example/blender-4.5.17-linux-x64.tar.xz"), "mirrors"),
 ])
 def test_bad_tool_is_refused(change, match):
     models = copy.deepcopy(MODELS)
