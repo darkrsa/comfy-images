@@ -53,7 +53,8 @@ def r2(*args: str) -> str:
 def create_pod(run_id: str, args: argparse.Namespace) -> dict:
     env = [{"key": k, "value": "{{ RUNPOD_SECRET_%s }}" % v} for k, v in SECRETS.items()]
     env += [{"key": k, "value": str(v)} for k, v in
-            {"RUN_ID": run_id, "KIT_REF": args.kit_ref, "STEPS": args.steps, "RANK": args.rank, "LR": args.lr}.items()]
+            {"RUN_ID": run_id, "KIT_REF": args.kit_ref, "STEPS": args.steps, "RANK": args.rank, "LR": args.lr,
+              "ART_REPEATS": args.art_repeats, "RENDER_REPEATS": args.render_repeats}.items()]
     url = f"https://raw.githubusercontent.com/darkrsa/comfy-images/{args.kit_ref}/training/wan22-lora/pod_train.sh"
     cmd = f"bash -c 'curl -fsSL {url} -o /pod_train.sh && bash /pod_train.sh; sleep infinity'"
     last = None
@@ -98,6 +99,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--dataset"); ap.add_argument("--kit-ref"); ap.add_argument("--out", required=True)
     ap.add_argument("--max-usd", type=float, default=4.0); ap.add_argument("--max-hours", type=float, default=6.0)
     ap.add_argument("--steps", type=int, default=2000); ap.add_argument("--rank", type=int, default=32)
+    ap.add_argument("--art-repeats", type=int, default=2); ap.add_argument("--render-repeats", type=int, default=1)
     ap.add_argument("--lr", default="1e-4"); ap.add_argument("--teardown", metavar="CREATED_JSON")
     args = ap.parse_args(argv)
     if args.teardown:

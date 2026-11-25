@@ -6,7 +6,11 @@
 # Stage changes go to runs/$RUN_ID/status.json, which run_pod.py polls. No RunPod key in here:
 # the runner terminates the pod by ID.
 #
+# Dataset zip: drawn art (png+txt) at the top level; optional renders/ subfolder with rendered
+# frames, trained as a second dataset with fewer repeats (ART_REPEATS vs RENDER_REPEATS).
+#
 # Env (from run_pod.py): RUN_ID, KIT_REF (comfy-images commit with this kit), STEPS, RANK, LR,
+# ART_REPEATS, RENDER_REPEATS,
 # BUCKET_ENDPOINT_URL / BUCKET_NAME / BUCKET_ACCESS_KEY_ID / BUCKET_SECRET_ACCESS_KEY (RunPod secrets r2_*).
 set -euo pipefail
 : "${RUN_ID:?}" "${KIT_REF:?}" "${BUCKET_ENDPOINT_URL:?}" "${BUCKET_NAME:?}"
@@ -32,11 +36,25 @@ grep -v '^#' $K/hf_pins.tsv | while IFS=$'\t' read -r repo sha pattern; do
   hf download "$repo" --revision "$sha" ${pattern:+--include "$pattern"} >/dev/null
 done
 python $K/r2.py get "datasets/$RUN_ID.zip" $D/ds.zip
-(cd $D/images && unzip -q ../ds.zip) && ls $D/images | head -3 && echo "$(ls $D/images/*.txt | wc -l) captions"
+(cd $D/images && unzip -q ../ds.zip)
+# renders/ must leave images/: ai-toolkit walks dataset folders recursively
+[ -d $D/images/renders ] && mv $D/images/renders $D/renders
+echo "art: $(ls $D/images/*.txt | wc -l) captions; renders: $(ls $D/renders/*.txt 2>/dev/null | wc -l) captions"
 
 # 2. train (both experts, switching every 10 steps) + end-of-training samples
 status train
-python -c "import os,sys; sys.stdout.write(os.path.expandvars(open('$K/train_config.yaml').read()))" > $K/job.yaml
+python - "$K" "$D" <<'PY'
+import os, sys, copy, yaml
+k, d = sys.argv[1], sys.argv[2]
+job = yaml.safe_load(os.path.expandvars(open(f"{k}/train_config.yaml").read()))
+ds = job["config"]["process"][0]["datasets"]
+if os.path.isdir(f"{d}/renders"):
+    ds[0]["num_repeats"] = int(os.environ.get("ART_REPEATS", "2"))
+    r = copy.deepcopy(ds[0]); r["folder_path"] = f"{d}/renders"
+    r["num_repeats"] = int(os.environ.get("RENDER_REPEATS", "1")); ds.append(r)
+print("datasets:", [(x["folder_path"], x.get("num_repeats", 1)) for x in ds])
+yaml.safe_dump(job, open(f"{k}/job.yaml", "w"), sort_keys=False)
+PY
 cd /app/ai-toolkit && python run.py $K/job.yaml
 python $K/r2.py put-dir "$RUN_ID" $O
 status done

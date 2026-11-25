@@ -40,7 +40,11 @@ python training/wan22-lora/run_pod.py --dataset zaffy_v1.zip --kit-ref <commit> 
 python training/wan22-lora/run_pod.py --teardown out/zaffy_v1/created.json   # if interrupted
 ```
 
-Dataset zip: flat folder of `name.png` + `name.txt` (caption) pairs.
+Dataset zip: drawn art as `name.png` + `name.txt` (caption) pairs at the top level. Rendered frames
+(Blender, img2img) go in an optional `renders/` subfolder; the pod trains it as a second dataset, so
+each art frame is seen `--art-repeats` times (default 2) per epoch and each render `--render-repeats`
+times (default 1). Caption renders with a style word such as `3d render` so the render look binds to
+that word and not to the trigger.
 
 Result: `out/<run>/result/<run_name>/` with `*.safetensors` LoRAs for both experts (ComfyUI
 loads them with two `LoraLoaderModelOnly` nodes, one per expert), `samples/`, `pod.log`.
