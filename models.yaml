@@ -197,6 +197,93 @@ files:
 # Amendment 1: one Docker image + one serverless endpoint per family, weights baked in at
 # build time (images.py renders docker/<family>/Dockerfile from this; CI builds and pushes
 # ghcr.io/mondaymood-media/kdp-comfy-<family>). Each family holds exactly one model.
+
+  # --- Lipsync (audio + portrait -> talking video), ComfyUI 0.34 native nodes. sha256 + size from
+  # HF's LFS headers and licences from the upstream cards, checked 2026-11-24.
+  # The 14B fp8 models (~16.4 GB) exceed GHCR's ~10 GB layer cap: `parts: 2` (images.py) bakes
+  # them as two verified layers, joined at worker start (docker/extras/assemble.py).
+  # Wan2.2-S2V (WanSoundImageToVideo), template video_wan2_2_14B_s2v.
+  - name: wan2_2_s2v_14b_fp8
+    url: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors
+    path: models/diffusion_models/wan2.2_s2v_14B_fp8_scaled.safetensors
+    size_gb: 16.39
+    sha256: 140e75af5534ac3d91e710d9df756f7032addd64b341ba2c1c70e3e6da9aa216  # HF LFS, 16394832474 bytes
+    parts: 2
+    licence: apache-2.0
+    licence_repo: Wan-AI/Wan2.2-S2V-14B
+    licence_url: https://huggingface.co/Wan-AI/Wan2.2-S2V-14B
+
+  - name: wav2vec2_large_english_fp16
+    url: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors
+    path: models/audio_encoders/wav2vec2_large_english_fp16.safetensors
+    size_gb: 0.63
+    sha256: f0017a43ea57ef6b3d4866be607844bbd8cada6d30966f7d70044ed0d63d3f9e  # HF LFS, 630997322 bytes
+    licence: apache-2.0
+    licence_repo: jonatasgrosman/wav2vec2-large-xlsr-53-english
+    licence_url: https://huggingface.co/jonatasgrosman/wav2vec2-large-xlsr-53-english
+
+  # Wan2.1 VAE (16-channel latents): S2V and the 14B I2V use it, not the 5B's wan2.2_vae.
+  - name: wan_2_1_vae
+    url: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/vae/wan_2.1_vae.safetensors
+    path: models/vae/wan_2.1_vae.safetensors
+    size_gb: 0.25
+    sha256: 2fc39d31359a4b0a64f55876d8ff7fa8d780956ae2cb13463b0223e15148976b  # HF LFS, 253815318 bytes
+    licence: apache-2.0
+    licence_repo: Wan-AI/Wan2.1-I2V-14B-480P
+    licence_url: https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P
+
+  # 4-step LightX2V LoRA the S2V template applies (cfg 1, 4 steps instead of 20).
+  - name: wan2_2_lightx2v_4steps_high_noise
+    url: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
+    path: models/loras/wan2.2_t2v_lightx2v_4steps_lora_v1.1_high_noise.safetensors
+    size_gb: 1.23
+    sha256: 698321cb86bd30c4af06c9b84e656a1048c8cb54e06d50694536fb5de37fde41  # HF LFS, 1226977424 bytes
+    licence: apache-2.0
+    licence_repo: lightx2v/Wan2.2-Lightning
+    licence_url: https://huggingface.co/lightx2v/Wan2.2-Lightning
+
+  # InfiniteTalk (WanInfiniteTalkToVideo, ModelPatchLoader) on Wan2.1 I2V 14B 480p, template
+  # video_wan2_1_infinitetalk.
+  - name: wan2_1_i2v_480p_14b_fp8
+    url: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/diffusion_models/wan2.1_i2v_480p_14B_fp8_scaled.safetensors
+    path: models/diffusion_models/wan2.1_i2v_480p_14B_fp8_scaled.safetensors
+    size_gb: 16.40
+    sha256: b2de21b99b2e72cb0ff15253b07e926f26e7cf1b7e229efc32f94ad1f1ed9395  # HF LFS, 16401356938 bytes
+    parts: 2
+    licence: apache-2.0
+    licence_repo: Wan-AI/Wan2.1-I2V-14B-480P
+    licence_url: https://huggingface.co/Wan-AI/Wan2.1-I2V-14B-480P
+
+  - name: wan2_1_infinitetalk_multi_fp16
+    url: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors
+    path: models/model_patches/wan2.1_infiniteTalk_multi_fp16.safetensors
+    size_gb: 5.12
+    sha256: 4c2486cdfb6ff9a9f27408e98e11e20619136933b20411e0c365b1e84075d195  # HF LFS, 5124439112 bytes
+    licence: apache-2.0
+    licence_repo: MeiGen-AI/InfiniteTalk
+    licence_url: https://huggingface.co/MeiGen-AI/InfiniteTalk
+
+  # Chinese wav2vec2 base, the audio encoder InfiniteTalk was trained with (MIT upstream card).
+  - name: wav2vec2_chinese_base_fp16
+    url: https://huggingface.co/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors
+    path: models/audio_encoders/wav2vec2-chinese-base_fp16.safetensors
+    size_gb: 0.19
+    sha256: 000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4  # HF LFS, 190115368 bytes
+    licence: mit
+    licence_repo: TencentGameMate/chinese-wav2vec2-base
+    licence_url: https://huggingface.co/TencentGameMate/chinese-wav2vec2-base
+
+  # LightX2V step/CFG-distill LoRA for Wan2.1 I2V 480p (4 steps, cfg 1). Kijai's rehost card says
+  # "unknown", so the licence is checked on the upstream lightx2v card (Apache-2.0).
+  - name: lightx2v_i2v_480p_rank64
+    url: https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
+    path: models/loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
+    size_gb: 0.74
+    sha256: 85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3  # HF LFS, 738005744 bytes
+    licence: apache-2.0
+    licence_repo: lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v
+    licence_url: https://huggingface.co/lightx2v/Wan2.1-I2V-14B-480P-StepDistill-CfgDistill-Lightx2v
+
 families:
   zimage-full:
     files: [z_image_bf16, qwen_3_4b, z_image_vae]
@@ -218,6 +305,16 @@ families:
     handler: outputs
     files: [trellis_2_int8_convrot, trellis_2_shape_vae_bf16, trellis_2_texture_vae_bf16,
             dino_v3_vit_l, birefnet]
+  # Lipsync: portrait + speech audio -> talking video (mp4), all-outputs handler. The 14B model is
+  # baked as 2 layers and joined at start: container disk 37 GB (images.container_disk_gb).
+  wan22-s2v:
+    handler: outputs
+    files: [wan2_2_s2v_14b_fp8, wav2vec2_large_english_fp16, umt5_xxl_fp8, wan_2_1_vae,
+            wan2_2_lightx2v_4steps_high_noise]
+  wan21-infinitetalk:
+    handler: outputs
+    files: [wan2_1_i2v_480p_14b_fp8, wan2_1_infinitetalk_multi_fp16, wav2vec2_chinese_base_fp16,
+            umt5_xxl_fp8, wan_2_1_vae, lightx2v_i2v_480p_rank64]
 
 # Bake-off profiles → files they need (by name) and sampler settings. workflows.py builds them.
 profiles:

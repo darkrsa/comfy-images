@@ -19,7 +19,7 @@ DIFFUSION_DIRS = ("models/unet/", "models/diffusion_models/")
 
 
 def test_families_have_one_diffusion_model_each():
-    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2"]
+    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2", "wan22-s2v", "wan21-infinitetalk"]
     by_name = {f["name"]: f for f in MODELS["files"]}
     for fam, spec in MODELS["families"].items():
         models = [n for n in spec["files"] if by_name[n]["path"].startswith(DIFFUSION_DIRS)]
@@ -109,8 +109,12 @@ def test_every_family_file_is_fetched_with_sha256_check(family):
         args = run.replace("\\\n", " ").split()
         assert "--mount=type=bind,from=fetch,source=fetch.py,target=/tmp/kdp-fetch.py" in args
         i = args.index("/tmp/kdp-fetch.py")
-        assert args[i + 1:] == ["--root", "/comfyui", f["path"], f["url"],
+        parts = ["--parts", str(f["parts"])] if f.get("parts", 1) > 1 else []
+        assert args[i + 1:] == ["--root", "/comfyui", *parts, f["path"], f["url"],
                                 f.get("sha256") or "-", f["licence_repo"], f["licence"]]
+        if parts:   # the split stage writes its own manifest, COPYed next to the parts
+            assert args[i - 2] == f"KDP_MANIFEST=/kdp-split/{f['name']}.json"
+            assert f["sha256"], "a split file must pin its sha256"
         assert f["url"].startswith("https://huggingface.co/")
         assert f["licence"] in MODELS["approved_licences"]
 
@@ -119,22 +123,37 @@ def test_every_family_file_is_fetched_with_sha256_check(family):
 def test_image_adds_nothing_but_weights_licences_and_handler(family):
     d = I.DOCKER / family
     text = (d / "Dockerfile").read_text()
+    split = I.split_files(family, MODELS)
+    stages = {I._stage(f) for f in split}
     instructions = [ln.split()[0] for ln in text.splitlines()
                     if ln and not ln.startswith(("#", " ")) and not ln.startswith("\t")]
-    assert set(instructions) <= {"FROM", "LABEL", "RUN", "COPY"}   # no ADD/ARG/ENV/USER
+    assert set(instructions) <= {"FROM", "LABEL", "RUN", "COPY", "CMD"}   # no ADD/ARG/ENV/USER
     copies = re.findall(r"^COPY (.*)$", text, re.M)
-    for copy_args in copies:   # only from docker/extras: licence texts and the handler
-        assert re.fullmatch(r"--from=extras (licenses/[\w.-]+ /licenses/[\w.-]+|handler\.py /handler\.py)",
-                            copy_args), copy_args
+    for copy_args in copies:   # docker/extras (licences, handler, joiner) or a split stage's parts
+        m = re.fullmatch(r"--from=(split-[\w-]+) (/comfyui/models/\S+\.kdp-part\d|/kdp-split/\w+\.json) \2",
+                         copy_args)
+        if m:
+            assert m.group(1) in stages, copy_args
+            continue
+        assert re.fullmatch(r"--from=extras (licenses/[\w.-]+ /licenses/[\w.-]+|handler\.py /handler\.py"
+                            r"|assemble\.py /kdp-assemble\.py)", copy_args), copy_args
     if not MODELS["families"][family].get("handler"):
         assert "/handler.py" not in text
-    assert instructions.count("FROM") == 1
-    assert re.search(r"^FROM runpod/worker-comfyui:5\.10\.0-base@sha256:[0-9a-f]{64}$", text, re.M)
+    assert instructions.count("FROM") == 1 + len(split)
+    assert instructions.count("CMD") == (1 if split else 0)
+    if split:
+        assert text.rstrip().endswith('CMD ["python3", "/kdp-assemble.py", "/start.sh"]')
+    froms = re.findall(r"^FROM (\S+)(?: AS (\S+))?$", text, re.M)
+    assert len(froms) == instructions.count("FROM")
+    for image, stage in froms:
+        assert re.fullmatch(r"runpod/worker-comfyui:5\.10\.0-base@sha256:[0-9a-f]{64}", image)
+    assert [s for _, s in froms] == sorted(stages) + [""] or [s for _, s in froms][-1] == ""
     assert not re.search(r"token|secret|password|HF_TOKEN", text, re.I)
     assert (d / ".dockerignore").read_text().splitlines()[-2:] == ["*", "!Dockerfile"]
     assert sorted(p.name for p in d.iterdir()) == [".dockerignore", "Dockerfile"]
     assert sorted(p.name for p in (I.DOCKER / "fetch").iterdir() if p.name != "__pycache__") == ["fetch.py"]
-    assert sorted(p.name for p in I.EXTRAS.iterdir() if p.name != "__pycache__") == ["handler.py", "licenses"]
+    assert sorted(p.name for p in I.EXTRAS.iterdir() if p.name != "__pycache__") == [
+        "assemble.py", "handler.py", "licenses"]
 
 
 def test_fetcher_reads_no_token():
@@ -205,7 +224,7 @@ def _plan_after(repo, path):
 @pytest.mark.parametrize(("path", "families"), [
     ("docker/zimage-full/Dockerfile", ["zimage-full"]),          # not the last family: used to exit 1
     ("docker/trellis2/Dockerfile", ["trellis2"]),
-    ("docker/extras/handler.py", ["wan22-5b", "trellis2"]),      # only families that copy extras
+    ("docker/extras/handler.py", ["wan22-5b", "trellis2", "wan22-s2v", "wan21-infinitetalk"]),      # only families that copy extras
     ("docker/fetch/fetch.py", FAMILIES),
     ("README.md", []),
 ])
@@ -220,3 +239,31 @@ def test_plan_with_unknown_base_rebuilds_all(plan_repo):
     out = subprocess.run(["bash", "ci/plan_families.sh", "0" * 40, "HEAD"], cwd=plan_repo, check=True,
                          capture_output=True, text=True)
     assert out.stdout.split() == FAMILIES
+
+
+def test_split_files_ship_every_part_and_size_the_disk():
+    for family in FAMILIES:
+        text = (I.DOCKER / family / "Dockerfile").read_text()
+        split = I.split_files(family, MODELS)
+        assert I.container_disk_gb(family, MODELS) == I.CONTAINER_DISK_GB + (
+            int(sum(f["size_gb"] for f in split)) + 1 if split else 0)
+        for f in split:
+            assert f["size_gb"] / f["parts"] <= I.LAYER_CAP_GB
+            for i in range(f["parts"]):
+                part = f"/comfyui/{f['path']}.kdp-part{i}"
+                assert f"COPY --from={I._stage(f)} {part} {part}\n" in text
+            assert f"COPY --from={I._stage(f)} /kdp-split/{f['name']}.json /kdp-split/{f['name']}.json" in text
+    assert {f for f in FAMILIES if I.split_files(f, MODELS)} == {"wan22-s2v", "wan21-infinitetalk"}
+
+
+def test_split_needs_enough_parts():
+    models = _models_with(wan2_2_s2v_14b_fp8={"parts": 1}, wan2_1_i2v_480p_14b_fp8={"parts": 1})
+    I.validate(models)   # unsplit: allowed (bf16 files compress under the cap; CI measures)
+    models = _models_with(wan2_2_s2v_14b_fp8={"parts": 0})
+    with pytest.raises(I.ModelsError, match="positive integer"):
+        I.validate(models)
+    models = _models_with(z_image_bf16={"parts": 1, "size_gb": 30.0})
+    I.validate(models)
+    models = _models_with(z_image_bf16={"parts": 2, "size_gb": 30.0})
+    with pytest.raises(I.ModelsError, match="per-layer budget"):
+        I.validate(models)

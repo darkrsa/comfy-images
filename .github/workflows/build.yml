@@ -9,7 +9,7 @@ on:
       family:
         description: Image family to build
         type: choice
-        options: [all, zimage-full, zimage-turbo, flux2klein, zimage-turbo-cn, wan22-5b, trellis2]
+        options: [all, zimage-full, zimage-turbo, flux2klein, zimage-turbo-cn, wan22-5b, trellis2, wan22-s2v, wan21-infinitetalk]
         default: all
   push:
     branches: [main]
@@ -112,6 +112,10 @@ jobs:
             -t "$IMAGE:$TAG" -t "$IMAGE:latest" "$CTX" 2>&1 | tee review/build.log
           echo "BUILD_S=$(( $(date +%s) - start ))" >>"$GITHUB_ENV"
           grep -oE 'verified [^ ]+ [0-9]+ [0-9a-f]{64}' review/build.log | tee review/verified.txt
+          df -h / /mnt 2>/dev/null || df -h /
+          # A split weight's build stage (whole file cut into parts) stays in the build cache;
+          # the image holds its own copy of the parts, so drop the cache before review and push.
+          docker builder prune -af >/dev/null
           df -h / /mnt 2>/dev/null || df -h /
 
       - name: Review manifest (history, files added vs base)

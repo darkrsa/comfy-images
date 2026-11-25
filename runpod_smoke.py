@@ -40,6 +40,17 @@ class SmokeError(RuntimeError):
     """A RunPod call failed or the job did not finish as expected."""
 
 
+def container_disk_gb(image: str) -> int:
+    """Template container disk for a kdp-comfy-<family> image (more for families whose split
+    weights are joined at start, see images.container_disk_gb); 20 GB for any other image."""
+    import images   # models.yaml; local import so the teardown path needs no PyYAML
+    name = image.rsplit("/", 1)[-1].split("@", 1)[0].rsplit(":", 1)[0]
+    family = name.removeprefix("kdp-comfy-")
+    if name.startswith("kdp-comfy-") and family in images.load_models()["families"]:
+        return images.container_disk_gb(family)
+    return images.CONTAINER_DISK_GB
+
+
 def _call(method: str, url: str, body: dict[str, Any] | None = None) -> Any:
     key = os.environ.get("RUNPOD_API_KEY")
     if not key:
@@ -110,7 +121,8 @@ def run(args: argparse.Namespace) -> int:
     state: dict[str, Any] = {"image": args.image, "gpu": args.gpu, "rate_usd_per_s": rate}
     try:
         template = _call("POST", f"{API}/templates", {
-            "name": f"smoke-{tag}", "image": args.image, "disk": 20, "serverless": True,
+            "name": f"smoke-{tag}", "image": args.image, "serverless": True,
+            "disk": args.disk or container_disk_gb(args.image),
             "env": {"MAX_RESULT_MB": str(args.max_result_mb),
                     **({k: "{{ RUNPOD_SECRET_%s }}" % v for k, v in R2_SECRETS.items()} if args.r2 else {})}})
         state["template_id"] = template["id"]
@@ -184,6 +196,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--max-usd", type=float, default=1.0)
     ap.add_argument("--max-result-mb", type=float, default=9, help="inline reply cap; /run allows 10 MB")
     ap.add_argument("--r2", action="store_true", help="have the handler upload outputs to R2 (RunPod secrets r2_*)")
+    ap.add_argument("--disk", type=int, help="template container disk GB (default: from models.yaml)")
     ap.add_argument("--timeout-s", type=float, default=3600)
     ap.add_argument("--poll-s", type=float, default=15)
     ap.add_argument("--teardown", help="created.json of an earlier run: delete what it lists, then exit")

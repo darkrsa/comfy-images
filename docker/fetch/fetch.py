@@ -12,7 +12,10 @@ standard library because runpod/worker-comfyui has python3 but no curl:
   3. download in parallel 64 MB ranges (each resumed + retried) to <root>/<path>.part, check
      size and sha256, move in place;
   4. record the file in /kdp-models.json (what the image adds, for review) and print
-     `verified <path> <size> <sha256>` (CI pins these values into models.yaml).
+     `verified <path> <size> <sha256>` (CI pins these values into models.yaml);
+  5. with --parts N (a file over GHCR's 10 GB layer cap), split the verified file into N
+     `<path>.kdp-part<i>` files, each COPYed into the image as its own layer and joined back at
+     worker start by docker/extras/assemble.py; the manifest entry lists the parts.
 Public URLs only: no token is read, so none can end up in a layer.
 """
 from __future__ import annotations
@@ -29,6 +32,7 @@ import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any
 
 HF = os.environ.get("HF_ENDPOINT", "https://huggingface.co")
 MANIFEST = Path(os.environ.get("KDP_MANIFEST", "/kdp-models.json"))
@@ -156,7 +160,46 @@ def record(entry: dict) -> None:
     os.replace(tmp, MANIFEST)
 
 
-def fetch(root: Path, path: str, url: str, want_sha: str, repo: str, want_licence: str) -> dict:
+PART_SUFFIX = ".kdp-part"
+
+
+def split(dest: Path, n: int) -> list[dict[str, Any]]:
+    """Cut `dest` into n near-equal `<dest>.kdp-part<i>` files (sizes differ by at most one
+    byte), each with its own sha256. In place, from the tail: each part is copied out and `dest`
+    truncated, so the build disk holds the file plus one part at most; `dest` becomes part 0."""
+    size = dest.stat().st_size
+    if n < 2 or size < n:
+        raise FetchError(f"cannot split {size} bytes into {n} parts")
+    base, extra = divmod(size, n)
+    starts = [i * base + min(i, extra) for i in range(n)] + [size]
+    parts: list[dict[str, Any]] = [{}] * n
+    for i in reversed(range(n)):
+        out = dest.with_name(f"{dest.name}{PART_SUFFIX}{i}")
+        start, want = starts[i], starts[i + 1] - starts[i]
+        h = hashlib.sha256()
+        if i:
+            with open(dest, "r+b") as src, open(out, "wb") as fh:
+                src.seek(start)
+                left = want
+                while left and (chunk := src.read(min(CHUNK, left))):
+                    fh.write(chunk)
+                    h.update(chunk)
+                    left -= len(chunk)
+                if left:
+                    raise FetchError(f"{dest}: short read while splitting")
+                src.truncate(start)
+        else:
+            os.replace(dest, out)
+            h = hashlib.sha256()
+            with open(out, "rb") as fh:
+                while chunk := fh.read(CHUNK):
+                    h.update(chunk)
+        parts[i] = {"path": str(out), "size": want, "sha256": h.hexdigest()}
+    return parts
+
+
+def fetch(root: Path, path: str, url: str, want_sha: str, repo: str, want_licence: str,
+          parts: int = 1) -> dict:
     want_sha = "" if want_sha == "-" else want_sha.lower()
     lic = licence_of(repo)
     if lic != want_licence:
@@ -175,16 +218,22 @@ def fetch(root: Path, path: str, url: str, want_sha: str, repo: str, want_licenc
         part.unlink()
         raise FetchError(f"sha256 {got} != expected {lfs_sha} (deleted)")
     os.replace(part, dest)
-    entry = {"path": str(dest), "url": url, "size": size, "sha256": got,
+    entry: dict[str, Any] = {"path": str(dest), "url": url, "size": size, "sha256": got,
              "licence": lic, "licence_repo": repo}
-    record(entry)
     print(f"verified {path} {size} {got} ({time.monotonic() - t0:.0f}s)", flush=True)
+    if parts > 1:
+        entry["parts"] = split(dest, parts)
+        for p in entry["parts"]:
+            print(f"  part {p['path']} {p['size']} {p['sha256']}", flush=True)
+    record(entry)
     return entry
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--root", type=Path, required=True)
+    ap.add_argument("--parts", type=int, default=1,
+                    help="split the verified file into this many layer-sized parts")
     ap.add_argument("path")
     ap.add_argument("url")
     ap.add_argument("sha256", help="pinned sha256, or - to take HF's LFS sha256")
@@ -192,7 +241,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("licence", help="licence the upstream card must report (from models.yaml)")
     a = ap.parse_args(argv)
     try:
-        fetch(a.root, a.path, a.url, a.sha256, a.licence_repo, a.licence)
+        fetch(a.root, a.path, a.url, a.sha256, a.licence_repo, a.licence, a.parts)
     except (FetchError, urllib.error.URLError, http.client.HTTPException, OSError) as e:
         print(f"fetch FAILED {a.path}: {e}", file=sys.stderr)
         return 1
