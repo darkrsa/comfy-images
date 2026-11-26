@@ -19,7 +19,7 @@ DIFFUSION_DIRS = ("models/unet/", "models/diffusion_models/")
 
 
 def test_families_have_one_diffusion_model_each():
-    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk"]
+    assert FAMILIES == ["zimage-full", "zimage-turbo", "flux2klein", "zimage-turbo-cn", "wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk", "qwen-image-edit"]
     by_name = {f["name"]: f for f in MODELS["files"]}
     for fam, spec in MODELS["families"].items():
         models = [n for n in spec["files"] if by_name[n]["path"].startswith(DIFFUSION_DIRS)]
@@ -268,7 +268,7 @@ def _plan_after(repo, path):
 @pytest.mark.parametrize(("path", "families"), [
     ("docker/zimage-full/Dockerfile", ["zimage-full"]),          # not the last family: used to exit 1
     ("docker/trellis2/Dockerfile", ["trellis2"]),
-    ("docker/extras/handler.py", ["wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk"]),      # only families that copy extras
+    ("docker/extras/handler.py", ["wan22-5b", "trellis2", "trellis2-pod", "wan22-s2v", "wan21-infinitetalk", "qwen-image-edit"]),      # only families that copy extras
     ("docker/fetch/fetch.py", FAMILIES),
     ("README.md", []),
 ])
@@ -297,7 +297,7 @@ def test_split_files_ship_every_part_and_size_the_disk():
                 part = f"/comfyui/{f['path']}.kdp-part{i}"
                 assert f"COPY --from={I._stage(f)} {part} {part}\n" in text
             assert f"COPY --from={I._stage(f)} /kdp-split/{f['name']}.json /kdp-split/{f['name']}.json" in text
-    assert {f for f in FAMILIES if I.split_files(f, MODELS)} == {"wan22-s2v", "wan21-infinitetalk"}
+    assert {f for f in FAMILIES if I.split_files(f, MODELS)} == {"wan22-s2v", "wan21-infinitetalk", "qwen-image-edit"}
 
 
 def test_split_needs_enough_parts():
